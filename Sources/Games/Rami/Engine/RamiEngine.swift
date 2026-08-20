@@ -101,7 +101,10 @@ enum RamiEngine {
                 throw RamiError.cardNotInHand
             }
             guard s.players[seat].hand.count >= 2 else { throw RamiError.mustKeepACardToThrow }
-            s.tableMelds[index].meld = try inserting(entry: entry, into: s.tableMelds[index].meld)
+            guard let grown = s.tableMelds[index].meld.inserting(entry) else {
+                throw RamiError.cannotAppendHere
+            }
+            s.tableMelds[index].meld = grown
             s.players[seat].hand.remove(at: handIndex)
             let stillPending = pendingJoker == entry.card ? nil : pendingJoker
             s.phase = .turn(seat: seat, .awaitingThrow(drew: drew, pendingJoker: stillPending))
@@ -180,6 +183,7 @@ enum RamiEngine {
                 }
             }
         }
+        s.lastDealPattern = pattern
         let firstActor = s.nextAliveSeat(after: s.dealerSeat)
         s.phase = .vote(proposerSeat: firstActor, currentSeat: firstActor)
     }
@@ -257,16 +261,6 @@ enum RamiEngine {
         }
         if let pendingJoker, allCards.contains(pendingJoker) { return nil }
         return pendingJoker
-    }
-
-    /// Tries the new entry at every position; first arrangement that validates wins.
-    private static func inserting(entry: MeldEntry, into meld: Meld) throws -> Meld {
-        for position in 0...meld.entries.count {
-            var candidate = meld
-            candidate.entries.insert(entry, at: position)
-            if (try? candidate.validate()) != nil { return candidate }
-        }
-        throw RamiError.cannotAppendHere
     }
 
     private static func reshuffleThrowStacksIntoPile(

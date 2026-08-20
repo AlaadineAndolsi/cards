@@ -83,6 +83,8 @@ struct RamiState: Codable, Hashable, Sendable {
     var lastInitialLayDownTotal: Int?
     var turnsCompletedThisRound = 0
     var eliminationOrder: [Int] = []
+    /// Pattern used for the most recent deal (drives the deal animation).
+    var lastDealPattern: DealPattern?
     var startedAt: Date
     var matchID: UUID
 
