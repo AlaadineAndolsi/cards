@@ -7,14 +7,12 @@ struct SeatView: View {
     let isDealer: Bool
     let isActive: Bool
     let melds: [TableMeld]
-    let meldsOnLeft: Bool
     let onMeldTap: (UUID) -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 5) {
-            if meldsOnLeft { meldColumn }
+        VStack(spacing: 4) {
             avatar
-            if !meldsOnLeft { meldColumn }
+            if !melds.isEmpty { meldColumn }
         }
     }
 
@@ -62,13 +60,17 @@ struct SeatView: View {
     }
 
     private var meldColumn: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            ForEach(melds.prefix(5)) { tableMeld in
+        VStack(alignment: .center, spacing: 3) {
+            ForEach(melds.prefix(4)) { tableMeld in
                 MiniMeldView(meld: tableMeld.meld)
                     .onTapGesture { onMeldTap(tableMeld.id) }
             }
+            if melds.count > 4 {
+                Text("+\(melds.count - 4)")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(Theme.accent)
+            }
         }
-        .frame(width: 74, alignment: meldsOnLeft ? .trailing : .leading)
     }
 }
 
@@ -130,6 +132,7 @@ struct MiniMeldView: View {
 struct ThrowStackView: View {
     let cards: [Card]
     let isTakeable: Bool
+    let namespace: Namespace.ID
     let onTap: () -> Void
 
     var body: some View {
@@ -141,6 +144,7 @@ struct ThrowStackView: View {
             } else {
                 ForEach(Array(cards.suffix(3).enumerated()), id: \.element.id) { index, card in
                     CardView(card: card)
+                        .matchedGeometryEffect(id: card.id, in: namespace)
                         .frame(width: 40)
                         .rotationEffect(.degrees(Double(index) * 4 - 4))
                         .offset(x: CGFloat(index) * 2 - 2)
@@ -201,6 +205,7 @@ struct PileView: View {
 /// The human hand: overlapping fan, tap to select, drag to reorder, sort buttons.
 struct HandView: View {
     @State var viewModel: RamiGameViewModel
+    let namespace: Namespace.ID
     @State private var draggedCardID: Int?
 
     var body: some View {
@@ -210,11 +215,12 @@ struct HandView: View {
                 sortButton("suit.spade.fill", action: viewModel.sortHandBySuit, label: "♠♥")
             }
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: -22) {
+                HStack(spacing: -27) {
                     ForEach(viewModel.humanHand) { card in
                         let selected = viewModel.selectedCardIDs.contains(card.id)
                         CardView(card: card)
-                            .frame(width: 52)
+                            .matchedGeometryEffect(id: card.id, in: namespace)
+                            .frame(width: 50)
                             .shadow(color: .black.opacity(0.4), radius: 3, x: -2, y: 2)
                             .overlay(
                                 RoundedRectangle(cornerRadius: 5)

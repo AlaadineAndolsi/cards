@@ -95,6 +95,9 @@ final class RamiGameViewModel {
     // MARK: Human actions
 
     func apply(_ action: RamiAction) {
+        #if DEBUG
+        print("RAMI human apply: \(action)")
+        #endif
         do {
             state = try RamiEngine.apply(action, by: humanSeat, to: state, rng: &rng)
             lastError = nil
@@ -187,6 +190,9 @@ final class RamiGameViewModel {
                 let view = PublicGameView(state: self.state, seat: seat)
                 var rng = SystemRandomNumberGenerator()
                 let action = bot.decide(view, rng: &rng)
+                #if DEBUG
+                print("RAMI bot \(seat) apply: \(action)")
+                #endif
                 do {
                     self.state = try RamiEngine.apply(action, by: seat, to: self.state, rng: &rng)
                     self.noteBotAction(action, seat: seat)

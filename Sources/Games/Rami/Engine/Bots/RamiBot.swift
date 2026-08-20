@@ -76,15 +76,29 @@ struct RamiBot: Sendable {
 
         // Before the first lay-down, taking requires laying down right now.
         let withCard = view.hand + [takeable]
-        var partition = HandAnalysis.bestPartition(hand: withCard)
-        if partition.coveredCount == withCard.count {
-            partition = droppingSmallestMeld(partition)
-        }
+        let partition = initialPartition(hand: withCard, required: view.requiredLayDown)
         if partition.value >= view.requiredLayDown, !partition.melds.isEmpty,
            partition.coveredCount < withCard.count {
             return .takeThrowAndLayDown(melds: partition.melds)
         }
         return .drawFromPile
+    }
+
+    /// Best qualifying initial lay-down, preferring to keep a closable hand
+    /// (≥ 4 cards left) when dropping a meld still meets the threshold.
+    private func initialPartition(hand: [Card], required: Int) -> HandAnalysis.Partition {
+        var partition = HandAnalysis.bestPartition(hand: hand)
+        while !partition.melds.isEmpty,
+              hand.count - partition.coveredCount < 4 {
+            let smaller = droppingSmallestMeld(partition)
+            guard smaller.value >= required, !smaller.melds.isEmpty else { break }
+            partition = smaller
+        }
+        // Never lay the entire hand — a throw must remain.
+        while partition.coveredCount == hand.count, !partition.melds.isEmpty {
+            partition = droppingSmallestMeld(partition)
+        }
+        return partition
     }
 
     private func droppingSmallestMeld(_ partition: HandAnalysis.Partition) -> HandAnalysis.Partition {
@@ -115,10 +129,7 @@ struct RamiBot: Sendable {
                 let total = closing.reduce(0) { $0 + ((try? $1.validatedThresholdValue()) ?? 0) }
                 if total >= view.requiredLayDown { return .layDown(melds: closing) }
             }
-            var partition = HandAnalysis.bestPartition(hand: view.hand)
-            if partition.coveredCount == view.hand.count {
-                partition = droppingSmallestMeld(partition)
-            }
+            let partition = initialPartition(hand: view.hand, required: view.requiredLayDown)
             if partition.value >= view.requiredLayDown, !partition.melds.isEmpty,
                partition.coveredCount < view.hand.count {
                 return .layDown(melds: partition.melds)
@@ -126,24 +137,68 @@ struct RamiBot: Sendable {
             return .throwCard(chooseDiscard(view, rng: &rng))
         }
 
-        // Already laid down: shed cards aggressively.
+        // Already laid down: shed cards, but never strand the hand below a
+        // closable size (a 1–2 card off-turn hand can only close via appends).
         if let closing = HandAnalysis.closingMelds(hand: view.hand) {
             return .layDown(melds: closing)
         }
         var partition = HandAnalysis.bestPartition(hand: view.hand, maximizeCoverage: true)
-        if partition.coveredCount == view.hand.count {
+        while !partition.melds.isEmpty, view.hand.count - partition.coveredCount < 4 {
             partition = droppingSmallestMeld(partition)
         }
-        if !partition.melds.isEmpty, partition.coveredCount < view.hand.count {
+        if !partition.melds.isEmpty {
             return .layDown(melds: partition.melds)
         }
         if level != .beginner, let swap = jokerSwapOpportunity(view) {
             return swap
         }
-        if view.hand.count >= 2, let append = appendOpportunity(view) {
+        if view.hand.count >= 5, let append = appendOpportunity(view) {
+            return append
+        }
+        if view.hand.count >= 2, view.hand.count <= 4,
+           let append = closingAppendOpportunity(view) {
             return append
         }
         return .throwCard(chooseDiscard(view, rng: &rng))
+    }
+
+    /// For a small hand: append only when every card except one throwable can
+    /// be placed on the table right now — i.e. the appends chain to a close.
+    private func closingAppendOpportunity(_ view: PublicGameView) -> RamiAction? {
+        let hand = view.hand
+        for excluded in hand.indices where !hand[excluded].isJoker || hand.count == 1 {
+            var melds = view.tableMelds
+            var firstAction: RamiAction?
+            var allPlaced = true
+            for index in hand.indices where index != excluded {
+                let card = hand[index]
+                var placed = false
+                for meldIndex in melds.indices {
+                    let entry: MeldEntry?
+                    if card.isJoker {
+                        entry = melds[meldIndex].meld.jokerEntryToExtend(joker: card)
+                    } else if let rank = card.rank, let suit = card.suit {
+                        entry = MeldEntry(card: card, asRank: rank, asSuit: suit)
+                    } else {
+                        entry = nil
+                    }
+                    if let entry, let grown = melds[meldIndex].meld.inserting(entry) {
+                        melds[meldIndex].meld = grown
+                        if firstAction == nil {
+                            firstAction = .appendCard(entry, meldID: melds[meldIndex].id)
+                        }
+                        placed = true
+                        break
+                    }
+                }
+                if !placed {
+                    allPlaced = false
+                    break
+                }
+            }
+            if allPlaced, let firstAction { return firstAction }
+        }
+        return nil
     }
 
     /// Lay the pending joker into a new meld, or append it to a table meld.
@@ -169,7 +224,7 @@ struct RamiBot: Sendable {
     /// Swap a table joker for its real card when the freed joker is immediately
     /// reusable in a meld from hand.
     private func jokerSwapOpportunity(_ view: PublicGameView) -> RamiAction? {
-        guard view.hand.count >= 4 else { return nil }
+        guard view.hand.count >= 7 else { return nil }  // keep a closable hand after replaying it
         for tableMeld in view.tableMelds {
             for entry in tableMeld.meld.entries where entry.card.isJoker {
                 guard let realIndex = view.hand.firstIndex(where: {
@@ -233,6 +288,14 @@ struct RamiBot: Sendable {
         let partition = HandAnalysis.bestPartition(hand: hand)
         var deadwood = hand.indices.filter { partition.mask & (1 << $0) == 0 }
         if deadwood.isEmpty { deadwood = Array(hand.indices) }
+
+        // Stalemate breaker: if the round drags on far beyond normal length,
+        // churn the hand with a random legal discard instead of hoarding.
+        if view.turnsCompletedThisRound > 30 * view.aliveCount {
+            let nonJokers = deadwood.filter { !hand[$0].isJoker }
+            let pool = nonJokers.isEmpty ? deadwood : nonJokers
+            return hand[pool.randomElement(using: &rng)!]
+        }
 
         var bestIndex = deadwood[0]
         var bestScore = -Double.infinity

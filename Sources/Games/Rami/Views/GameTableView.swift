@@ -13,8 +13,16 @@ struct GameTableView: View {
     @State private var expandedThrowSeat: Int?
     @State private var zoomedMeldID: UUID?
     @State private var shufflePulse = 0
+    @State private var dealFlights: [DealFlight] = []
+    @Namespace private var cardSpace
 
     private var state: RamiState { viewModel.state }
+
+    struct DealFlight: Identifiable {
+        let id: Int
+        let seatOffset: Int
+        let delay: Double
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -101,9 +109,9 @@ struct GameTableView: View {
     private func seatAnchor(_ offset: Int, in size: CGSize) -> CGPoint {
         let midX = size.width / 2
         switch offset {
-        case 1: return CGPoint(x: size.width - 54, y: size.height * 0.40)
-        case 2: return CGPoint(x: midX, y: size.height * 0.16)
-        case 3: return CGPoint(x: 54, y: size.height * 0.40)
+        case 1: return CGPoint(x: size.width - 62, y: size.height * 0.35)
+        case 2: return CGPoint(x: midX, y: size.height * 0.15)
+        case 3: return CGPoint(x: 62, y: size.height * 0.35)
         default: return CGPoint(x: midX, y: size.height * 0.70)
         }
     }
@@ -142,7 +150,6 @@ struct GameTableView: View {
                         isDealer: state.dealerSeat == seatIndex,
                         isActive: activeSeat == seatIndex,
                         melds: state.tableMelds.filter { $0.ownerSeat == seatIndex },
-                        meldsOnLeft: offset == 1,
                         onMeldTap: { zoomedMeldID = $0 })
                     .position(seatAnchor(offset, in: size))
                 } else {
@@ -155,11 +162,61 @@ struct GameTableView: View {
                 ThrowStackView(
                     cards: state.players[seatIndex].throwStack,
                     isTakeable: takeHighlight(seatIndex),
+                    namespace: cardSpace,
                     onTap: { expandedThrowSeat = seatIndex })
                 .position(throwAnchor(offset, in: size))
             }
+            ForEach(dealFlights) { flight in
+                DealFlightCard(
+                    delay: flight.delay,
+                    from: CGPoint(x: 52, y: size.height - 96),
+                    to: flight.seatOffset == 0
+                        ? CGPoint(x: size.width / 2, y: size.height - 110)
+                        : seatAnchor(flight.seatOffset, in: size))
+            }
         }
         .animation(reduceMotion ? .default : .cardSpring, value: state)
+        .onChange(of: isVotePhase) { _, started in
+            guard started, !reduceMotion else { return }
+            buildDealFlights()
+        }
+    }
+
+    private var isVotePhase: Bool {
+        if case .vote = state.phase { return true }
+        return false
+    }
+
+    /// One flying card back per dealt card, in the true dealing order and
+    /// rhythm of the chosen pattern.
+    private func buildDealFlights() {
+        guard let pattern = state.lastDealPattern else { return }
+        var order: [Int] = []
+        var seatIndex = state.dealerSeat
+        for _ in 0..<state.aliveCount {
+            seatIndex = state.nextAliveSeat(after: seatIndex)
+            order.append(seatIndex)
+        }
+        var flights: [DealFlight] = []
+        var delay = 0.0
+        var flightID = 0
+        for pass in pattern.passes(playerCount: state.aliveCount) {
+            for (position, receiver) in order.enumerated() {
+                let amount = receiver == state.dealerSeat ? pass[0] : pass[position + 1]
+                for _ in 0..<amount {
+                    let offset = (receiver - viewModel.humanSeat + 4) % 4
+                    flights.append(DealFlight(id: flightID, seatOffset: offset, delay: delay))
+                    flightID += 1
+                    delay += 0.05
+                }
+            }
+            delay += 0.12  // breath between passes: the rhythm reads
+        }
+        dealFlights = flights
+        Task {
+            try? await Task.sleep(for: .seconds(delay + 0.6))
+            dealFlights = []
+        }
     }
 
     private func takeHighlight(_ seatIndex: Int) -> Bool {
@@ -184,7 +241,7 @@ struct GameTableView: View {
                     }
                 }
                 Spacer()
-                HandView(viewModel: viewModel)
+                HandView(viewModel: viewModel, namespace: cardSpace)
                 Spacer()
                 Button {
                     showStats = true
@@ -320,6 +377,24 @@ struct GameTableView: View {
         case .invalidMeld: "Selection is not valid melds"
         default: "That move isn't allowed"
         }
+    }
+}
+
+/// A card back that flies from the pile to a seat, then fades.
+private struct DealFlightCard: View {
+    let delay: Double
+    let from: CGPoint
+    let to: CGPoint
+    @State private var flown = false
+
+    var body: some View {
+        CardBackView()
+            .frame(width: 34)
+            .position(flown ? to : from)
+            .opacity(flown ? 0 : 1)
+            .animation(.easeIn(duration: 0.34).delay(delay), value: flown)
+            .onAppear { flown = true }
+            .allowsHitTesting(false)
     }
 }
 

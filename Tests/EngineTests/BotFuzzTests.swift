@@ -68,7 +68,13 @@ struct BotFuzzTests {
         var steps = 0
         while let seat = GameDriver.actingSeat(state), steps < 40_000 {
             let view = PublicGameView(state: state, seat: seat)
-            state = try! RamiEngine.apply(bot.decide(view, rng: &rng), by: seat, to: state, rng: &rng)
+            let action = bot.decide(view, rng: &rng)
+            do {
+                state = try RamiEngine.apply(action, by: seat, to: state, rng: &rng)
+            } catch {
+                Issue.record("Illegal action \(action) by seat \(seat) at step \(steps): \(error)")
+                return
+            }
             steps += 1
             if case .turn(let turnSeat, .awaitingDraw) = state.phase {
                 for i in state.players.indices where !state.players[i].isEliminated {
