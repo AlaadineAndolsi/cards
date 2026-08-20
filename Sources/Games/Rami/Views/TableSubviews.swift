@@ -206,7 +206,6 @@ struct PileView: View {
 struct HandView: View {
     @State var viewModel: RamiGameViewModel
     let namespace: Namespace.ID
-    @State private var draggedCardID: Int?
 
     var body: some View {
         VStack(spacing: 5) {
