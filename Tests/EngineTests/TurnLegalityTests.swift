@@ -36,19 +36,20 @@ struct VoteTests {
         return s
     }
 
-    @Test func firstActorPlayingStartsTheirTurn() throws {
+    @Test func playStartsWithTheDealerThrowingTheir15thCard() throws {
         var s = try dealtState()
         s = try StateBuilder.apply(.declareIntent(play: true), by: 3, to: s)
-        #expect(s.phase == .turn(seat: 3, .awaitingDraw))
+        // The dealer (seat 2, 15 cards) opens the round with a throw-only turn.
+        #expect(s.phase == .turn(seat: 2, .awaitingThrow(drew: .dealt, pendingJoker: nil)))
     }
 
-    @Test func anyDeclineStartsPlayWithFirstActor() throws {
+    @Test func anyDeclineStartsPlayWithTheDealer() throws {
         var s = try dealtState()
         s = try StateBuilder.apply(.declareIntent(play: false), by: 3, to: s)
         #expect(s.phase == .vote(proposerSeat: 3, currentSeat: 0))
         s = try StateBuilder.apply(.declareIntent(play: false), by: 0, to: s)
         s = try StateBuilder.apply(.declareIntent(play: true), by: 1, to: s)
-        #expect(s.phase == .turn(seat: 3, .awaitingDraw))
+        #expect(s.phase == .turn(seat: 2, .awaitingThrow(drew: .dealt, pendingJoker: nil)))
     }
 
     @Test func unanimousPassAbandonsRoundAndRotatesDealer() throws {

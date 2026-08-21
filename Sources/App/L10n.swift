@@ -7,6 +7,7 @@ enum L10n {
     static let chkobba = "Chkobba"
     static let comingSoon = "Coming soon"
     static let settings = "Settings"
+    static let rules = "Rules"
     static let history = "Games history"
     static let newGame = "New Game"
     static let resumeGame = "Resume Game"

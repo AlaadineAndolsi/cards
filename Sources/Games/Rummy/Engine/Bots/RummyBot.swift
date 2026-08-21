@@ -132,7 +132,7 @@ struct RummyBot: Sendable {
         }
 
         // First cycle: draw and throw only, no lay-downs yet.
-        guard view.turnsCompletedThisRound >= view.aliveCount - 1 else {
+        guard view.turnsCompletedThisRound >= view.aliveCount else {
             return .throwCard(chooseDiscard(view, rng: &rng))
         }
 

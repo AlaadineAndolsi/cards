@@ -54,9 +54,9 @@ enum RummyEngine {
         case (.declareIntent(let play), .vote(let proposer, let current)):
             guard seat == current else { throw RummyError.notYourTurn }
             if play {
-                // Someone wants to play: the round starts normally with the
-                // player to the dealer's right.
-                s.phase = .turn(seat: proposer, turnStartStage(for: proposer, in: s))
+                // Someone wants to play: the round starts with the DEALER,
+                // who throws their 15th card (no purchase on that turn).
+                s.phase = .turn(seat: s.dealerSeat, turnStartStage(for: s.dealerSeat, in: s))
             } else {
                 let next = s.nextAliveSeat(after: current)
                 if next == proposer {
@@ -100,9 +100,10 @@ enum RummyEngine {
 
         case (.layDown(let melds), .turn(let turnSeat, .awaitingThrow(let drew, let pendingJoker))):
             guard seat == turnSeat else { throw RummyError.notYourTurn }
-            // First cycle is pure draw-and-throw: nobody may lay before the
-            // turn comes back around to the dealer.
-            guard s.turnsCompletedThisRound >= s.aliveCount - 1 else {
+            // First cycle is pure draw-and-throw: the dealer opens by
+            // throwing, everyone purchases and throws once, and only when the
+            // turn returns to the dealer may anyone lay.
+            guard s.turnsCompletedThisRound >= s.aliveCount else {
                 throw RummyError.layDownLocked
             }
             let stillPending = try performLayDown(

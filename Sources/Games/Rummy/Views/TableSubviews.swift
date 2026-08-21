@@ -332,16 +332,25 @@ struct ArcHandView: View {
             .onChanged { value in
                 let cards = viewModel.humanHand
                 let locked = viewModel.lockedCardIDs.contains(card.id)
+                let inSelection = viewModel.selectedCardIDs.contains(card.id)
+                    && viewModel.selectedCardIDs.count > 1
                 if draggedID != card.id {
                     draggedID = card.id
-                    draggedGroup = locked ? viewModel.lockedGroup(containing: card.id) : []
+                    if locked {
+                        draggedGroup = viewModel.lockedGroup(containing: card.id)
+                    } else if inSelection {
+                        // A selected series travels together too.
+                        draggedGroup = Array(viewModel.selectedCardIDs)
+                    } else {
+                        draggedGroup = []
+                    }
                     let count = CGFloat(cards.count - 1)
                     let centerOffset = CGFloat(index) - count / 2
                     dragStartX = width / 2 + centerOffset * step
                 }
                 dragTranslation = value.translation
-                if locked {
-                    // Locked series travel as one block — no reorder.
+                if locked || inSelection {
+                    // Groups travel as one block — no reorder.
                     return
                 }
                 // Hold the card high over the table → big melds fade in so the
@@ -381,6 +390,16 @@ struct ArcHandView: View {
                         Haptics.action()
                         withAnimation(reduceMotion ? .default : .cardSpring) {
                             viewModel.layLockedSeries(at: seriesIndex)
+                        }
+                    }
+                    return
+                }
+                if viewModel.selectedCardIDs.contains(card.id),
+                   viewModel.selectedCardIDs.count > 1 {
+                    // Slide a selected series up = lay it directly, no lock step.
+                    if translation.height < -70 {
+                        withAnimation(reduceMotion ? .default : .cardSpring) {
+                            viewModel.laySelectedSeries()
                         }
                     }
                     return

@@ -23,7 +23,7 @@ struct LayDownTests {
             seat: 0, stage: .awaitingThrow(drew: .pile, pendingJoker: nil),
             hands: [hand, [], [], []],
             laidDown: [laidDown, false, false, false],
-            turnsCompleted: 3,  // past the first draw-and-throw cycle
+            turnsCompleted: 4,  // the turn has come back to the dealer
             lastInitialLayDown: lastInitial,
             config: config)
     }
@@ -32,7 +32,7 @@ struct LayDownTests {
         var config = RulesConfig.default
         config.minimumLayDown = 60
         var s = turnState(hand: handWith(kings + aces, filler: 9), config: config)
-        s.turnsCompletedThisRound = 2  // dealer has not had their turn yet
+        s.turnsCompletedThisRound = 3  // the turn is not back to the dealer yet
         #expect(throws: RummyError.layDownLocked) {
             try StateBuilder.apply(.layDown(melds: [meldOf(kings), meldOf(aces)]), by: 0, to: s)
         }

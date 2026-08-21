@@ -59,6 +59,13 @@ struct RummyHomeView: View {
             }
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink {
+                    RulesView()
+                } label: {
+                    Image(systemName: "book.fill")
+                }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink {
                     SettingsView(settings: settings)
                 } label: {
                     Image(systemName: "gearshape.fill")

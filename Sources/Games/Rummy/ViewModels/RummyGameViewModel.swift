@@ -131,7 +131,7 @@ final class RummyGameViewModel {
     var takeableThrow: Card? { state.takeableThrow(for: humanSeat) }
 
     var layDownUnlocked: Bool {
-        state.turnsCompletedThisRound >= state.aliveCount - 1
+        state.turnsCompletedThisRound >= state.aliveCount
     }
 
     /// Whose turn/phase it is, for the header.
@@ -195,11 +195,36 @@ final class RummyGameViewModel {
         guard let partition = selectionAsPartition else { return }
         Haptics.action()
         for meld in partition.melds {
-            lockedSeries.append(meld.entries.map(\.card.id))
-            lockedMelds.append(meld)
+            // Locked (and later laid) series always read smallest → biggest,
+            // the biggest card on the right; the ace sits left in A-2-3.
+            let ordered = ascendingEntries(meld)
+            lockedSeries.append(ordered.map(\.card.id))
+            lockedMelds.append(Meld(entries: ordered))
         }
         selectedCardIDs = []
         rebuildHandOrder()
+    }
+
+    /// Slide a selected (unlocked) series up: it lays directly, selection →
+    /// laid, no lock step needed.
+    func laySelectedSeries() {
+        guard let partition = selectionAsPartition else {
+            Haptics.warning()
+            showNotice("Selection isn't a valid series", warn: true, duration: 1.8)
+            return
+        }
+        Haptics.action()
+        apply(.layDown(melds: partition.melds.map { Meld(entries: ascendingEntries($0)) }))
+    }
+
+    private func ascendingEntries(_ meld: Meld) -> [MeldEntry] {
+        let lowRun = meld.entries.contains { $0.asRank == .two }
+        func key(_ entry: MeldEntry) -> Int {
+            entry.asRank == .ace ? (lowRun ? 1 : 14) : entry.asRank.rawValue
+        }
+        return meld.entries.sorted {
+            (key($0), suitIndex($0.card)) < (key($1), suitIndex($1.card))
+        }
     }
 
     func unlockSeries(containing id: Int) {

@@ -125,6 +125,9 @@ struct SerializationTests {
         s = try RummyEngine.apply(.shuffle, by: 0, to: s, rng: &rng)
         s = try RummyEngine.apply(.deal(.p3222), by: 0, to: s, rng: &rng)
         s = try RummyEngine.apply(.declareIntent(play: true), by: 1, to: s, rng: &rng)
+        // The dealer (seat 0) opens with their throw-only turn.
+        s = try RummyEngine.apply(
+            .throwCard(s.players[0].hand.first { !$0.isJoker }!), by: 0, to: s, rng: &rng)
         s = try RummyEngine.apply(.drawFromPile, by: 1, to: s, rng: &rng)
         let data = try JSONEncoder().encode(s)
         let decoded = try JSONDecoder().decode(RummyState.self, from: data)
