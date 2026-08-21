@@ -218,13 +218,24 @@ final class RummyGameViewModel {
         apply(.layDown(melds: partition.melds.map { Meld(entries: ascendingEntries($0)) }))
     }
 
+    /// Locked and laid series always read smallest → biggest, biggest at the
+    /// right. In sets the minority color sits at the right ("different color
+    /// at right"); with two red and two black, the black cards sit right.
     private func ascendingEntries(_ meld: Meld) -> [MeldEntry] {
         let lowRun = meld.entries.contains { $0.asRank == .two }
-        func key(_ entry: MeldEntry) -> Int {
+        func rankKey(_ entry: MeldEntry) -> Int {
             entry.asRank == .ace ? (lowRun ? 1 : 14) : entry.asRank.rawValue
         }
+        let reds = meld.entries.filter(\.asSuit.isRed).count
+        let blacks = meld.entries.count - reds
+        func colorKey(_ entry: MeldEntry) -> Int {
+            let isRed = entry.asSuit.isRed
+            if reds == blacks { return isRed ? 0 : 1 }   // 2–2: black at right
+            return isRed == (reds > blacks) ? 0 : 1      // minority color right
+        }
         return meld.entries.sorted {
-            (key($0), suitIndex($0.card)) < (key($1), suitIndex($1.card))
+            (rankKey($0), colorKey($0), suitIndex($0.card))
+                < (rankKey($1), colorKey($1), suitIndex($1.card))
         }
     }
 
