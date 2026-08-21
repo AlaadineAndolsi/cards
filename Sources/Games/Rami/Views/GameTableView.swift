@@ -114,11 +114,11 @@ struct GameTableView: View {
         }
     }
 
-    /// Lays hug their owner: right under the side seats, beside the top seat.
+    /// Lays sit directly under their owner's avatar.
     private func meldsAnchor(_ offset: Int, in size: CGSize) -> CGPoint {
         switch offset {
         case 1: CGPoint(x: size.width - 44, y: size.height * 0.33 + 82)
-        case 2: CGPoint(x: size.width / 2 - 94, y: 158)
+        case 2: CGPoint(x: size.width / 2, y: 218)
         default: CGPoint(x: 44, y: size.height * 0.33 + 82)
         }
     }
@@ -127,12 +127,12 @@ struct GameTableView: View {
         CGPoint(x: 46, y: size.height * 0.62)
     }
 
-    /// Exactly the centroid of the three bot seats.
+    /// The exact center of the circle of all four players.
     private func throwCenter(in size: CGSize) -> CGPoint {
-        let anchors = [1, 2, 3].map { avatarAnchor($0, in: size) }
+        let anchors = [0, 1, 2, 3].map { avatarAnchor($0, in: size) }
         return CGPoint(
-            x: anchors.map(\.x).reduce(0, +) / 3,
-            y: anchors.map(\.y).reduce(0, +) / 3 + 14)  // clear of the top seat's chips
+            x: anchors.map(\.x).reduce(0, +) / 4,
+            y: anchors.map(\.y).reduce(0, +) / 4 + 34)
     }
 
     private var activeSeat: Int? {
@@ -164,7 +164,7 @@ struct GameTableView: View {
                 // Melds along that player's own side.
                 SideMeldsView(
                     melds: state.tableMelds.filter { $0.ownerSeat == seatIndex },
-                    horizontal: false,
+                    horizontal: offset == 2,
                     onTap: { zoomedMeldID = $0 })
                 .position(meldsAnchor(offset, in: size))
             }
@@ -211,6 +211,16 @@ struct GameTableView: View {
             // Sort / cancel actions under the right player.
             handActions
                 .position(x: size.width - 46, y: size.height * 0.62)
+            // Your lays, one serie per line, centered between pile and actions.
+            SideMeldsView(
+                melds: state.tableMelds.filter { $0.ownerSeat == viewModel.humanSeat },
+                horizontal: false,
+                onTap: { id in
+                    if let tableMeld = state.tableMelds.first(where: { $0.id == id }) {
+                        handleMeldTap(tableMeld)
+                    }
+                })
+            .position(x: size.width / 2, y: size.height * 0.62)
             ForEach(dealFlights) { flight in
                 DealFlightCard(
                     delay: flight.delay,
@@ -311,7 +321,6 @@ struct GameTableView: View {
     private var bottomArea: some View {
         VStack(spacing: 6) {
             layDownPill
-            humanMeldsRow
             ArcHandView(viewModel: viewModel, namespace: cardSpace, reduceMotion: reduceMotion)
         }
         .padding(.bottom, 2)
@@ -352,24 +361,6 @@ struct GameTableView: View {
                 .foregroundStyle(prominent ? AnyShapeStyle(.black) : AnyShapeStyle(Theme.accent))
         }
         .buttonStyle(.plain)
-    }
-
-    private var humanMeldsRow: some View {
-        let melds = state.tableMelds.filter { $0.ownerSeat == viewModel.humanSeat }
-        return Group {
-            if !melds.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(melds) { tableMeld in
-                            MiniMeldView(meld: tableMeld.meld)
-                                .onTapGesture { handleMeldTap(tableMeld) }
-                        }
-                    }
-                    .padding(.horizontal, 10)
-                }
-                .frame(height: 30)
-            }
-        }
     }
 
     private func handleMeldTap(_ tableMeld: TableMeld) {
