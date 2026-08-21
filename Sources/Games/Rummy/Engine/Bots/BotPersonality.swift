@@ -142,19 +142,19 @@ struct BotWeights: Sendable {
         switch level {
         case .beginner:
             BotWeights(
-                memoryWindow: 3, memoryDecay: 0.55, noiseTemperature: 0.80,
+                memoryWindow: 3, memoryDecay: 0.55, noiseTemperature: 0.55,
                 jailThreshold: 0.85, jailCostCap: 0.8, smallCardsDiscipline: 0.30,
                 gloryAppetite: 0.5, gloryCommit: 0.60, gloryBail: 0.30,
                 eliminationAwareness: 0.4, opponentModelDepth: 0, layEagerness: 0.55)
         case .intermediate:
             BotWeights(
-                memoryWindow: 8, memoryDecay: 0.75, noiseTemperature: 0.35,
+                memoryWindow: 8, memoryDecay: 0.75, noiseTemperature: 0.22,
                 jailThreshold: 0.60, jailCostCap: 1.4, smallCardsDiscipline: 0.70,
                 gloryAppetite: 0.5, gloryCommit: 0.72, gloryBail: 0.48,
                 eliminationAwareness: 0.8, opponentModelDepth: 1, layEagerness: 0.50)
         case .expert:
             BotWeights(
-                memoryWindow: .max, memoryDecay: 0.92, noiseTemperature: 0.12,
+                memoryWindow: .max, memoryDecay: 0.92, noiseTemperature: 0.05,
                 jailThreshold: 0.45, jailCostCap: 2.2, smallCardsDiscipline: 0.95,
                 gloryAppetite: 0.5, gloryCommit: 0.80, gloryBail: 0.60,
                 eliminationAwareness: 1.0, opponentModelDepth: 2, layEagerness: 0.45)

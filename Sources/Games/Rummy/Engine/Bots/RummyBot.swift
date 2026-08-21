@@ -60,6 +60,98 @@ struct RummyBot: Sendable {
         return 0
     }
 
+    // MARK: - Objective ladder (§1): close > lay-and-bleed > never eat 100
+
+    enum Objective: Equatable {
+        /// Hold a nearly-complete hand and hunt the 14-card satisfaction close.
+        case huntGloryClose
+        /// Already laid: keep bleeding cards onto melds toward zero.
+        case bleed
+        /// Bank a qualifying lay-down the normal way.
+        case secureLayDown
+        /// Danger is high and nothing is banked: lock in *any* lay-down now.
+        case panicLayDown
+    }
+
+    func weights(for view: PublicGameView) -> BotWeights {
+        .resolve(level: level, archetype: view.mind.archetype, frustration: view.mind.frustration)
+    }
+
+    /// Close to the kill score, a bot stops gambling entirely. Awareness of
+    /// this shrinks with level — beginners barely feel the cliff coming.
+    func nearElimination(_ view: PublicGameView) -> Bool {
+        let margin = Int(120 * weights(for: view).eliminationAwareness)
+        return view.players[view.seat].totalScore >= view.config.eliminationScore - margin
+    }
+
+    /// 0…1 urgency: the pile draining, an opponent about to close, the
+    /// threshold escaping upward, the round dragging on.
+    func roundHeat(_ view: PublicGameView) -> Double {
+        var heat = 0.0
+        let pile = Double(view.drawPileCount)
+        if pile < 25 { heat += (25 - pile) / 25 * 0.6 }
+        let threat = view.players.indices
+            .filter { $0 != view.seat && !view.players[$0].isEliminated }
+            .map { view.players[$0].handCount }
+            .min() ?? 14
+        if threat <= 2 { heat += 0.6 } else if threat <= 4 { heat += 0.45 } else if threat <= 6 { heat += 0.2 }
+        if view.players.enumerated().contains(where: { $0.offset != view.seat && $0.element.hasLaidDown }) {
+            heat += 0.2
+        }
+        if view.requiredLayDown > view.config.minimumLayDown { heat += 0.15 }
+        let age = Double(view.turnsCompletedThisRound) / Double(max(1, view.aliveCount))
+        heat += min(0.25, max(0, (age - 8) * 0.03))
+        return min(1, heat)
+    }
+
+    /// Comfortable enough to gamble: at or below the table's median score and
+    /// far from elimination.
+    func scoreCushion(_ view: PublicGameView) -> Bool {
+        let alive = view.players.filter { !$0.isEliminated }.map(\.totalScore).sorted()
+        guard !alive.isEmpty else { return false }
+        let my = view.players[view.seat].totalScore
+        return my <= alive[alive.count / 2] && view.config.eliminationScore - my >= 250
+    }
+
+    /// 0…1 plausibility of melding the full hand: current meld coverage plus
+    /// how alive the leftover cards still are given remembered dead cards.
+    func closePotential(_ view: PublicGameView) -> Double {
+        closePotential(view, partition: HandAnalysis.bestPartition(hand: view.hand, maximizeCoverage: true))
+    }
+
+    private func closePotential(_ view: PublicGameView, partition: HandAnalysis.Partition) -> Double {
+        let hand = view.hand
+        guard hand.count > 1 else { return 0 }
+        let target = Double(hand.count - 1)
+        let coverage = Double(min(partition.coveredCount, hand.count - 1)) / target
+        let loose = hand.indices.filter { partition.mask & (1 << $0) == 0 }.map { hand[$0] }
+        let model = OpponentModel(view: view, weights: weights(for: view))
+        let liveliness = loose.isEmpty
+            ? 1
+            : loose.reduce(0.0) { $0 + ($1.isJoker ? 1 : model.liveliness(of: $1)) } / Double(loose.count)
+        return coverage * 0.7 + liveliness * 0.3
+    }
+
+    /// Which tier of the outcome hierarchy this bot is realistically playing
+    /// for right now — re-estimated every decision, personality-weighted.
+    func objective(_ view: PublicGameView) -> Objective {
+        if view.hasLaidDown { return .bleed }
+        let w = weights(for: view)
+        let heat = roundHeat(view)
+        if nearElimination(view) { return heat > 0.5 ? .panicLayDown : .secureLayDown }
+        if heat > 0.7 { return .panicLayDown }
+        // The glory hunt: only with appetite, a score cushion, and a cool
+        // room. Experts read heat sharply; beginners barely notice it. A hand
+        // already one-or-two cards from complete stays committed (hysteresis).
+        let heatCap = 0.4 + 0.4 * (1 - w.eliminationAwareness)
+        if w.gloryAppetite > 0.3, scoreCushion(view), heat < heatCap {
+            let partition = HandAnalysis.bestPartition(hand: view.hand, maximizeCoverage: true)
+            let bar = partition.coveredCount >= view.hand.count - 2 ? w.gloryBail : w.gloryCommit
+            if closePotential(view, partition: partition) >= bar { return .huntGloryClose }
+        }
+        return .secureLayDown
+    }
+
     // MARK: - Draw step
 
     private func drawDecision(_ view: PublicGameView) -> RummyAction {
@@ -76,8 +168,16 @@ struct RummyBot: Sendable {
             return .drawFromPile
         }
 
-        // Before the first lay-down, taking requires laying down right now.
         let withCard = view.hand + [takeable]
+        // The glorious take: everything melds at once and one card remains to
+        // throw — closing needs no threshold, so this is always safe.
+        if let closing = HandAnalysis.closingMelds(hand: withCard) {
+            return .takeThrowAndLayDown(melds: closing)
+        }
+        // A hunter refuses the partial take+lay that would blow the cover.
+        if objective(view) == .huntGloryClose { return .drawFromPile }
+
+        // Before the first lay-down, taking requires laying down right now.
         let partition = initialPartition(hand: withCard, required: view.requiredLayDown)
         if partition.value >= view.requiredLayDown, !partition.melds.isEmpty,
            partition.coveredCount < withCard.count {
@@ -138,14 +238,33 @@ struct RummyBot: Sendable {
 
         if !view.hasLaidDown {
             // Close outright when the whole hand melds — going out never
-            // needs the threshold.
+            // needs the threshold, and even a hunter slams this down.
             if let closing = HandAnalysis.closingMelds(hand: view.hand) {
                 return .layDown(melds: closing)
             }
-            let partition = initialPartition(hand: view.hand, required: view.requiredLayDown)
-            if partition.value >= view.requiredLayDown, !partition.melds.isEmpty,
-               partition.coveredCount < view.hand.count {
-                return .layDown(melds: partition.melds)
+            let objective = objective(view)
+            switch objective {
+            case .huntGloryClose:
+                // Hold everything: the hand stays hidden until the full slam.
+                return .throwCard(chooseDiscard(view, rng: &rng))
+            case .panicLayDown, .secureLayDown, .bleed:
+                // Panic (or elimination fear) banks the biggest qualifying
+                // partition immediately; the calm path trims to keep the
+                // leftover hand closable.
+                let partition: HandAnalysis.Partition
+                if objective == .panicLayDown || nearElimination(view) {
+                    var full = HandAnalysis.bestPartition(hand: view.hand)
+                    while full.coveredCount == view.hand.count, !full.melds.isEmpty {
+                        full = droppingSmallestMeld(full)
+                    }
+                    partition = full
+                } else {
+                    partition = initialPartition(hand: view.hand, required: view.requiredLayDown)
+                }
+                if partition.value >= view.requiredLayDown, !partition.melds.isEmpty,
+                   partition.coveredCount < view.hand.count {
+                    return .layDown(melds: partition.melds)
+                }
             }
             return .throwCard(chooseDiscard(view, rng: &rng))
         }
@@ -294,10 +413,12 @@ struct RummyBot: Sendable {
         meld.jokerEntryToExtend(joker: joker)
     }
 
-    // MARK: - Discard choice (where the levels really differ)
+    // MARK: - Discard choice: the heart of human play (§3, §4)
 
     private func chooseDiscard(_ view: PublicGameView, rng: inout some RandomNumberGenerator) -> Card {
         let hand = view.hand
+        let w = weights(for: view)
+        let model = OpponentModel(view: view, weights: w)
         let partition = HandAnalysis.bestPartition(hand: hand)
         var deadwood = hand.indices.filter { partition.mask & (1 << $0) == 0 }
         if deadwood.isEmpty { deadwood = Array(hand.indices) }
@@ -318,110 +439,61 @@ struct RummyBot: Sendable {
 
         // Stalemate breaker: if the round drags on far beyond normal length,
         // churn the hand with a random legal discard instead of hoarding.
-        if view.turnsCompletedThisRound > 30 * view.aliveCount {
+        let stalemate = view.turnsCompletedThisRound > 30 * view.aliveCount
+        if stalemate {
             let nonJokers = deadwood.filter { !hand[$0].isJoker }
             let pool = nonJokers.isEmpty ? deadwood : nonJokers
             return hand[pool.randomElement(using: &rng)!]
         }
 
-        var bestIndex = deadwood[0]
-        var bestScore = -Double.infinity
-        for index in deadwood {
-            let score = discardScore(hand[index], view: view)
-                + Double.random(in: 0..<0.01, using: &rng)  // tie-break only
-            if score > bestScore {
-                bestScore = score
-                bestIndex = index
+        // Card jailing (§3): a card the next player wants stays stuck in hand
+        // — playing slightly worse for myself to starve them — until it turns
+        // safe or keeping it hurts too much. Everyone-is-hot releases the jail.
+        let nearDeath = nearElimination(view)
+        let dangers = Dictionary(uniqueKeysWithValues: deadwood.map {
+            ($0, model.danger(of: hand[$0]))
+        })
+        let free = deadwood.filter { index in
+            let keepCost = Double(hand[index].handValue) * 0.1 * (nearDeath ? 2 : 1)
+            return dangers[index]! <= w.jailThreshold || keepCost > w.jailCostCap
+        }
+        if !free.isEmpty { deadwood = free }
+
+        // Score every remaining candidate: higher = better to throw.
+        let early = view.turnsCompletedThisRound < view.aliveCount * 2
+            && !view.players.contains(where: \.hasLaidDown)
+        let scores = deadwood.map { index -> Double in
+            let card = hand[index]
+            if card.isJoker { return -100 }
+            var score = 0.0
+            // Value pressure: early on, give away small cards to deny the next
+            // player cheap threshold progress; later (or near elimination),
+            // shed the expensive deadwood that would score against me.
+            if early && !nearDeath {
+                score += Double(11 - card.handValue) * 0.12 * w.smallCardsDiscipline
+                score += Double(card.handValue) * 0.12 * (1 - w.smallCardsDiscipline)
+            } else {
+                score += Double(card.handValue) * (nearDeath ? 0.18 : 0.12)
             }
-        }
-        return hand[bestIndex]
-    }
-
-    /// Higher = better to throw.
-    private func discardScore(_ card: Card, view: PublicGameView) -> Double {
-        var score = 1.0
-        if card.isJoker { return -100 }  // never throw a joker
-
-        // Keep cards that still work toward melds in hand.
-        for other in view.hand where other != card {
-            score -= Double(pairSynergy(card, other)) * 0.2 * liveliness(card, view: view)
+            // Keep cards that still work toward live melds in hand.
+            let synergy = hand.reduce(0) { $0 + (($1 == card) ? 0 : pairSynergy(card, $1)) }
+            score -= Double(synergy) * 0.25 * model.liveliness(of: card)
+            // Soft defensive pressure below the jail bar.
+            score -= dangers[index]! * 0.6
+            return score
         }
 
-        switch level {
-        case .beginner:
-            // Greedy: slight preference for shedding expensive cards.
-            score += Double(card.handValue) * 0.03
-
-        case .intermediate:
-            score += Double(card.handValue) * 0.03
-            score += danger(card, takenBy: view.players[view.nextAliveSeat].takenThrows,
-                            recentOnly: true, view: view)
-
-        case .expert:
-            let next = view.players[view.nextAliveSeat]
-            score += danger(card, takenBy: next.takenThrows, recentOnly: false, view: view)
-            // Cards the next player declined (left in our stack) mark safe zones.
-            let declined = view.players[view.seat].throwStack
-            for safe in declined {
-                if let sr = safe.rank, let cr = card.rank {
-                    if sr == cr { score += 0.25 }
-                    if safe.suit == card.suit, abs(sr.rawValue - cr.rawValue) <= 2 { score += 0.2 }
-                }
-            }
-            // Early round: give away small cards so the next player cannot
-            // cheaply reach the threshold; later, dump expensive deadwood.
-            let early = view.turnsCompletedThisRound < view.aliveCount * 2
-                && !view.players.contains(where: \.hasLaidDown)
-            score += early
-                ? Double(11 - card.handValue) * 0.06
-                : Double(card.handValue) * 0.06
+        // Human inconsistency (§4): softmax over the scores instead of argmax.
+        // Experts are near-greedy; beginners visibly pick second-best moves.
+        let temperature = max(0.02, w.noiseTemperature)
+        let peak = scores.max() ?? 0
+        let softWeights = scores.map { exp(($0 - peak) / temperature) }
+        let total = softWeights.reduce(0, +)
+        var roll = Double.random(in: 0..<max(total, .leastNonzeroMagnitude), using: &rng)
+        for (offset, weight) in softWeights.enumerated() {
+            roll -= weight
+            if roll <= 0 { return hand[deadwood[offset]] }
         }
-        return score
-    }
-
-    /// 0…1: how completable this card's melds still are, from dead-card counting.
-    /// Beginner ignores it; intermediate sees a recent window; expert sees all.
-    private func liveliness(_ card: Card, view: PublicGameView) -> Double {
-        guard level != .beginner, let rank = card.rank, let suit = card.suit else { return 1 }
-        let visible: [Card]
-        switch level {
-        case .beginner: return 1
-        case .intermediate:
-            visible = view.players.flatMap { $0.throwStack.suffix(2) }
-        case .expert:
-            visible = view.visibleCards
-        }
-        var deadCount = 0
-        var helperCount = 0
-        for neighborOffset in [-2, -1, 1, 2] {
-            guard let neighbor = Rank(rawValue: rank.rawValue + neighborOffset) else { continue }
-            helperCount += 2
-            deadCount += visible.filter { $0.rank == neighbor && $0.suit == suit }.count
-        }
-        for otherSuit in Suit.allCases where otherSuit != suit {
-            helperCount += 2
-            deadCount += visible.filter { $0.rank == rank && $0.suit == otherSuit }.count
-        }
-        guard helperCount > 0 else { return 1 }
-        return max(0, 1 - Double(deadCount) / Double(helperCount) * 1.5)
-    }
-
-    /// Negative when throwing this card would likely feed the next player.
-    private func danger(
-        _ card: Card, takenBy taken: [Card], recentOnly: Bool, view: PublicGameView
-    ) -> Double {
-        guard let rank = card.rank else { return 0 }
-        let considered = recentOnly ? Array(taken.suffix(3)) : taken
-        var score = 0.0
-        for takenCard in considered {
-            guard let takenRank = takenCard.rank else { continue }
-            if takenRank == rank && takenCard.suit != card.suit { score -= 0.9 }
-            if takenCard.suit == card.suit {
-                let distance = abs(takenRank.rawValue - rank.rawValue)
-                if distance == 1 { score -= 0.8 }
-                else if distance == 2 { score -= 0.4 }
-            }
-        }
-        return score
+        return hand[deadwood.last!]
     }
 }
