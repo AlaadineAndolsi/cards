@@ -76,11 +76,18 @@ enum RamiEngine {
 
         case (.takeThrow, .turn(let turnSeat, .awaitingDraw)):
             guard seat == turnSeat else { throw RamiError.notYourTurn }
-            guard s.players[seat].hasLaidDown else { throw RamiError.mustLayDownWithTake }
             let card = try takePreviousThrow(&s, seat: seat)
             s.players[seat].hand.append(card)
             s.players[seat].takenThrows.append(card)
-            s.phase = .turn(seat: seat, .awaitingThrow(drew: .takenThrow, pendingJoker: nil))
+            // Taking before the first lay-down is a commitment: with no
+            // qualifying lay-down even possible, the taker is penalized 100,
+            // everyone else scores 0, and the round ends on the spot.
+            if !s.players[seat].hasLaidDown,
+               !Self.qualifyingLayDownExists(hand: s.players[seat].hand, required: s.requiredLayDown) {
+                Scoring.settleFailedTake(&s, penalized: seat)
+            } else {
+                s.phase = .turn(seat: seat, .awaitingThrow(drew: .takenThrow, pendingJoker: nil))
+            }
 
         case (.takeThrowAndLayDown(let melds), .turn(let turnSeat, .awaitingDraw)):
             guard seat == turnSeat else { throw RamiError.notYourTurn }
@@ -93,6 +100,11 @@ enum RamiEngine {
 
         case (.layDown(let melds), .turn(let turnSeat, .awaitingThrow(let drew, let pendingJoker))):
             guard seat == turnSeat else { throw RamiError.notYourTurn }
+            // First cycle is pure draw-and-throw: nobody may lay before the
+            // turn comes back around to the dealer.
+            guard s.turnsCompletedThisRound >= s.aliveCount - 1 else {
+                throw RamiError.layDownLocked
+            }
             let stillPending = try performLayDown(
                 melds: melds, seat: seat, in: &s, pendingJoker: pendingJoker)
             s.phase = .turn(seat: seat, .awaitingThrow(drew: drew, pendingJoker: stillPending))
@@ -137,9 +149,13 @@ enum RamiEngine {
             s.players[seat].hand.append(joker)
             s.phase = .turn(seat: seat, .awaitingThrow(drew: drew, pendingJoker: joker))
 
-        case (.throwCard(let card), .turn(let turnSeat, .awaitingThrow(_, let pendingJoker))):
+        case (.throwCard(let card), .turn(let turnSeat, .awaitingThrow(let drew, let pendingJoker))):
             guard seat == turnSeat else { throw RamiError.notYourTurn }
             guard pendingJoker == nil else { throw RamiError.jokerPending }
+            // A pre-lay-down take must be honored before the turn can end.
+            if drew == .takenThrow, !s.players[seat].hasLaidDown {
+                throw RamiError.mustLayDownWithTake
+            }
             guard let handIndex = s.players[seat].hand.firstIndex(of: card) else {
                 throw RamiError.cardNotInHand
             }
@@ -163,6 +179,12 @@ enum RamiEngine {
     }
 
     // MARK: - Helpers
+
+    /// True when some meld combination (keeping at least one card to throw)
+    /// reaches the required first-lay-down total.
+    static func qualifyingLayDownExists(hand: [Card], required: Int) -> Bool {
+        HandAnalysis.bestPartition(hand: hand, maxCovered: hand.count - 1).value >= required
+    }
 
     /// A "double" is holding both copies of the same card. A hand dead enough
     /// in doubles may force the round to pass without a vote:

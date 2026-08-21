@@ -175,13 +175,15 @@ struct GameTableView: View {
                 highlighted: takeableHighlighted,
                 namespace: cardSpace,
                 onTap: {
-                    #if DEBUG
-                    print("RAMI throw spot tapped, takeable=\(takeableHighlighted), last=\(String(describing: lastThrow?.id))")
-                    #endif
-                    if takeableHighlighted {
-                        viewModel.tapTakeableThrow()
-                    } else if lastThrow != nil {
+                    if lastThrow != nil {
                         withAnimation(.cardSpring) { showLastThrows = true }
+                    }
+                },
+                onTake: {
+                    if takeableHighlighted {
+                        withAnimation(reduceMotion ? .default : .cardSpring) {
+                            viewModel.tapTakeableThrow()
+                        }
                     }
                 })
             .position(throwCenter(in: size))
@@ -326,22 +328,24 @@ struct GameTableView: View {
         .padding(.bottom, 2)
     }
 
+    private var layDownUnlocked: Bool {
+        state.turnsCompletedThisRound >= state.aliveCount - 1
+    }
+
     @ViewBuilder
     private var layDownPill: some View {
-        if let selection = viewModel.selectedMelds {
+        if !layDownUnlocked {
+            EmptyView()
+        } else if let selection = viewModel.selectedMelds, case .awaitingThrow = viewModel.humanStage {
             let hasLaidDown = state.players[viewModel.humanSeat].hasLaidDown
-            let needsThreshold = !hasLaidDown
-            let meets = !needsThreshold || selection.total >= state.requiredLayDown
-            if viewModel.selectionIncludesTakeable {
-                if viewModel.humanStage == .awaitingDraw, !hasLaidDown, state.throwTakeUnlocked {
-                    pill("\(L10n.takeAndLayDown) (\(selection.total))", prominent: meets) {
-                        viewModel.apply(.takeThrowAndLayDown(melds: selection.melds))
-                    }
-                }
-            } else if case .awaitingThrow = viewModel.humanStage {
-                pill("\(L10n.layDown) (\(selection.total))", prominent: meets) {
-                    viewModel.apply(.layDown(melds: selection.melds))
-                }
+            let meets = hasLaidDown || selection.total >= state.requiredLayDown
+            pill("\(L10n.layDown) (\(selection.total))", prominent: meets) {
+                viewModel.apply(.layDown(melds: selection.melds))
+            }
+        } else if viewModel.mustLayDownNow {
+            // Committed by the take: offer the engine-found lay-down.
+            pill(L10n.layDownAuto, prominent: true) {
+                viewModel.autoLayDown()
             }
         }
     }
@@ -467,7 +471,8 @@ struct GameTableView: View {
         case .thresholdNotMet(let required, let got):
             "Need \(required) — you have \(got)"
         case .throwTakeLocked: "Taking unlocks after the first full turn"
-        case .mustLayDownWithTake: "Lay down to take that card"
+        case .mustLayDownWithTake: "You took the throw — lay down first"
+        case .layDownLocked: "No lay-downs in the first turns"
         case .meldFull: "Melds hold at most 5 cards"
         case .cannotAppendHere: "Doesn't fit this meld"
         case .jokerPending: "Play the swapped joker first"

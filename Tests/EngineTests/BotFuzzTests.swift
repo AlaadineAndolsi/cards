@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import TunisianCards
+@testable import Cards
 
 enum GameDriver {
     static func actingSeat(_ s: RamiState) -> Int? {

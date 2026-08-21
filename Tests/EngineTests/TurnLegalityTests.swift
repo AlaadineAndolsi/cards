@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import TunisianCards
+@testable import Cards
 
 private func distinctCards(_ count: Int, excluding: Set<Int> = []) -> [Card] {
     Array(Card.fullDeck().filter { !excluding.contains($0.id) }.prefix(count))
@@ -206,9 +206,50 @@ struct ThrowTakeTests {
         #expect(after.phase == .turn(seat: 1, .awaitingThrow(drew: .takenThrow, pendingJoker: nil)))
     }
 
-    @Test func plainTakeThrowRequiresPriorLayDown() {
+    @Test func preLayDownTakeWithNoQualifyingLayDownEndsRoundWithPenalty() throws {
+        // Generic hand + taken card cannot reach 61 → instant 100 / 0 / 0 / 0.
         let (s, _) = takeSetup(turnsCompleted: 4, laidDown: false)
-        #expect(throws: RamiError.mustLayDownWithTake) { try StateBuilder.apply(.takeThrow, by: 1, to: s) }
+        let after = try StateBuilder.apply(.takeThrow, by: 1, to: s)
+        guard case .roundEnded(let result) = after.phase else {
+            Issue.record("expected roundEnded, got \(after.phase)")
+            return
+        }
+        #expect(result.closerSeat == nil)
+        #expect(result.deltas == [0, 100, 0, 0])
+        #expect(after.players.map(\.totalScore) == [0, 100, 0, 0])
+    }
+
+    @Test func preLayDownTakeWithQualifyingHandLocksUntilLayDown() throws {
+        // Kings + aces + Q-K-A run in hand: taking commits, throw is blocked
+        // until the lay-down happens, then the turn completes normally.
+        let kings = [TestCards.card(.king, .hearts), TestCards.card(.king, .spades), TestCards.card(.king, .clubs)]
+        let aces = [TestCards.card(.ace, .hearts), TestCards.card(.ace, .spades), TestCards.card(.ace, .clubs)]
+        let run = [TestCards.card(.ten, .diamonds), TestCards.card(.jack, .diamonds), TestCards.card(.queen, .diamonds)]
+        let meldCards = kings + aces + run
+        let filler = Array(Card.fullDeck().filter { card in
+            !meldCards.contains(card) && !card.isJoker
+        }.suffix(5))
+        let prevThrown = [TestCards.card(.nine, .spades, copy: 1)]
+        var s = StateBuilder.turn(
+            seat: 1, stage: .awaitingDraw,
+            hands: [[], meldCards + filler, [], []],
+            throwStacks: [prevThrown, [], [], []],
+            turnsCompleted: 4)
+        s.players[0].hand = Array(Card.fullDeck().filter { card in
+            !meldCards.contains(card) && !filler.contains(card) && !prevThrown.contains(card)
+        }.prefix(14))
+        var after = try StateBuilder.apply(.takeThrow, by: 1, to: s)
+        #expect(after.phase == .turn(seat: 1, .awaitingThrow(drew: .takenThrow, pendingJoker: nil)))
+        // Throwing before honoring the lay-down is illegal.
+        #expect(throws: RamiError.mustLayDownWithTake) {
+            try StateBuilder.apply(.throwCard(filler[0]), by: 1, to: after)
+        }
+        let melds = [kings, aces, run].map { cards in
+            Meld(entries: cards.map { MeldEntry(card: $0, asRank: $0.rank!, asSuit: $0.suit!) })
+        }
+        after = try StateBuilder.apply(.layDown(melds: melds), by: 1, to: after)
+        #expect(after.players[1].hasLaidDown)
+        _ = try StateBuilder.apply(.throwCard(filler[0]), by: 1, to: after)
     }
 
     @Test func takeThrowAndLayDownMustMeetThreshold() {

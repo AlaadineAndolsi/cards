@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import TunisianCards
+@testable import Cards
 
 struct PersistenceTests {
     private func temporaryStore() -> GameStore {

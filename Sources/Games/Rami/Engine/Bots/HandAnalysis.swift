@@ -125,8 +125,11 @@ enum HandAnalysis {
 
     /// Best disjoint combination of candidate melds. `maximizeCoverage` ranks
     /// by covered card count first (for closing), otherwise by total value
-    /// (for reaching the lay-down threshold).
-    static func bestPartition(hand: [Card], maximizeCoverage: Bool = false) -> Partition {
+    /// (for reaching the lay-down threshold). `maxCovered` caps how many
+    /// cards the partition may use (e.g. hand.count - 1 to keep a throw).
+    static func bestPartition(
+        hand: [Card], maximizeCoverage: Bool = false, maxCovered: Int? = nil
+    ) -> Partition {
         let cands = candidates(hand: hand).sorted {
             maximizeCoverage
                 ? ($0.cardCount, $0.value) > ($1.cardCount, $1.value)
@@ -149,6 +152,9 @@ enum HandAnalysis {
             for i in start..<cands.count {
                 let candidate = cands[i]
                 guard candidate.mask & current.mask == 0 else { continue }
+                if let maxCovered, current.coveredCount + candidate.cardCount > maxCovered {
+                    continue
+                }
                 var next = current
                 next.melds.append(candidate.meld)
                 next.value += candidate.value

@@ -97,16 +97,17 @@ struct VotePanelView: View {
                     }
                     if canForcePass {
                         Button(action: onForcePass) {
-                            Label(L10n.forcePass, systemImage: "exclamationmark.2")
+                            Text(L10n.forcePass)
                                 .font(.subheadline.weight(.bold))
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 11)
-                                .background(.red.opacity(0.85), in: Capsule())
+                                .background(.red.opacity(0.8), in: Capsule())
                                 .foregroundStyle(.white)
                         }
                     }
                 }
             }
+            .opacity(0.9)
             .padding(.horizontal, 20)
             .padding(.bottom, 170)
         }

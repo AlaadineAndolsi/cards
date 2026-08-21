@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import TunisianCards
+@testable import Cards
 
 struct ClosingAndScoringTests {
     /// Seat 0 about to close: 1 card in hand. Seat 1 laid down, holds K+9 (19).

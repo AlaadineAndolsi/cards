@@ -9,22 +9,34 @@ enum Scoring {
     /// continues to the next round or ends the match.
     static func settleRound(_ s: inout RamiState, closerSeat: Int) {
         var deltas = [Int](repeating: 0, count: s.players.count)
+        for seat in s.players.indices where !s.players[seat].isEliminated {
+            if seat == closerSeat {
+                deltas[seat] = 0
+            } else if s.players[seat].hasLaidDown {
+                deltas[seat] = s.players[seat].hand.reduce(0) { $0 + $1.handValue }
+            } else {
+                deltas[seat] = 100
+            }
+        }
+        finish(&s, deltas: deltas, closerSeat: closerSeat)
+    }
+
+    /// A player took the throw without any qualifying lay-down possible:
+    /// they take 100 flat, everyone else 0, and the round ends immediately.
+    static func settleFailedTake(_ s: inout RamiState, penalized seat: Int) {
+        var deltas = [Int](repeating: 0, count: s.players.count)
+        deltas[seat] = 100
+        finish(&s, deltas: deltas, closerSeat: nil)
+    }
+
+    private static func finish(_ s: inout RamiState, deltas: [Int], closerSeat: Int?) {
         for seat in s.players.indices {
             guard !s.players[seat].isEliminated else {
                 s.players[seat].roundScores.append(nil)
                 continue
             }
-            let delta: Int
-            if seat == closerSeat {
-                delta = 0
-            } else if s.players[seat].hasLaidDown {
-                delta = s.players[seat].hand.reduce(0) { $0 + $1.handValue }
-            } else {
-                delta = 100
-            }
-            deltas[seat] = delta
-            s.players[seat].roundScores.append(delta)
-            s.players[seat].totalScore += delta
+            s.players[seat].roundScores.append(deltas[seat])
+            s.players[seat].totalScore += deltas[seat]
         }
 
         // Among simultaneous deaths, the higher total dies "first" (worse place).

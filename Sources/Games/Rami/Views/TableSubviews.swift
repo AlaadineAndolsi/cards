@@ -161,11 +161,18 @@ struct ThrowSpotView: View {
     let highlighted: Bool
     let namespace: Namespace.ID
     let onTap: () -> Void
+    let onTake: () -> Void
 
     var body: some View {
         content
             .contentShape(Rectangle())
             .onTapGesture(perform: onTap)
+            // Slide the thrown card down toward your hand to take it —
+            // the mirror of sliding a hand card up to throw.
+            .gesture(
+                DragGesture(minimumDistance: 15).onEnded { value in
+                    if value.translation.height > 55 { onTake() }
+                })
     }
 
     private var content: some View {
@@ -258,7 +265,7 @@ struct ArcHandView: View {
                         + (selected ? -22 : 0)
                         + (isDragged ? dragTranslation.height : 0)
 
-                    CardView(card: card, handStyle: true)
+                    CardView(card: card)
                         .matchedGeometryEffect(id: card.id, in: namespace)
                         .frame(width: cardWidth)
                         .shadow(color: .black.opacity(0.4), radius: 3, x: -2, y: 2)
@@ -268,7 +275,9 @@ struct ArcHandView: View {
                         .rotationEffect(.degrees(isDragged ? 0 : centerOffset * 3.0))
                         .scaleEffect(isDragged ? 1.1 : 1)
                         .position(x: x, y: y)
-                        .zIndex(isDragged ? 100 : Double(count - index))  // left card always on top
+                        // Classic fan: each card shows its left part with the
+                        // index on top; the card to the right overlaps it.
+                        .zIndex(isDragged ? 100 : Double(index))
                         .onTapGesture { viewModel.toggleSelection(card) }
                         .gesture(dragGesture(for: card, index: index, step: step, width: width))
                 }

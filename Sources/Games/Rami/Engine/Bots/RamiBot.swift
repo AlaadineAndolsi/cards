@@ -125,6 +125,11 @@ struct RamiBot: Sendable {
             return placeJoker(joker, view: view)
         }
 
+        // First cycle: draw and throw only, no lay-downs yet.
+        guard view.turnsCompletedThisRound >= view.aliveCount - 1 else {
+            return .throwCard(chooseDiscard(view, rng: &rng))
+        }
+
         if !view.hasLaidDown {
             // Close outright if the whole hand melds at threshold value.
             if let closing = HandAnalysis.closingMelds(hand: view.hand) {

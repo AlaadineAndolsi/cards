@@ -1,5 +1,5 @@
 import Foundation
-@testable import TunisianCards
+@testable import Cards
 
 /// Builds crafted mid-game states for legality tests.
 enum StateBuilder {

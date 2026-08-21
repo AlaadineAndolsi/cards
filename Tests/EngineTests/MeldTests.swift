@@ -1,5 +1,5 @@
 import Testing
-@testable import TunisianCards
+@testable import Cards
 
 /// Helpers to build cards/melds tersely in tests.
 enum TestCards {

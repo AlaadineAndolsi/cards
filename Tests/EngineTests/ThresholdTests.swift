@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import TunisianCards
+@testable import Cards
 
 private func meldOf(_ cards: [Card]) -> Meld {
     Meld(entries: cards.map { MeldEntry(card: $0, asRank: $0.rank!, asSuit: $0.suit!) })
@@ -23,8 +23,19 @@ struct LayDownTests {
             seat: 0, stage: .awaitingThrow(drew: .pile, pendingJoker: nil),
             hands: [hand, [], [], []],
             laidDown: [laidDown, false, false, false],
+            turnsCompleted: 3,  // past the first draw-and-throw cycle
             lastInitialLayDown: lastInitial,
             config: config)
+    }
+
+    @Test func layDownIsLockedDuringTheFirstCycle() {
+        var config = RulesConfig.default
+        config.minimumLayDown = 60
+        var s = turnState(hand: handWith(kings + aces, filler: 9), config: config)
+        s.turnsCompletedThisRound = 2  // dealer has not had their turn yet
+        #expect(throws: RamiError.layDownLocked) {
+            try StateBuilder.apply(.layDown(melds: [meldOf(kings), meldOf(aces)]), by: 0, to: s)
+        }
     }
 
     @Test func initialLayDownBelowConfiguredMinimumIsRejected() {
@@ -97,6 +108,7 @@ struct AppendAndJokerTests {
             seat: 0, stage: .awaitingThrow(drew: .pile, pendingJoker: pendingJoker),
             hands: [hand, [], [], []],
             laidDown: [laidDown, false, false, false],
+            turnsCompleted: 4,
             tableMelds: melds)
     }
 

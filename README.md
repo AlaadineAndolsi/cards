@@ -1,6 +1,6 @@
 # Tunisian Cards
 
-A hub of Tunisian card games for iOS. Version 1 ships **Rami** — fully playable,
+A hub of Tunisian card games for iOS. Version 1 ships **Rummy** (Tunisian Rami) — fully playable,
 1 human vs 3 bots, 100% offline — with **Chkobba** teased as coming soon.
 
 - Swift 6 (strict concurrency), SwiftUI, iOS 17+
@@ -24,10 +24,10 @@ Requires Xcode 16+ and [XcodeGen](https://github.com/yonaskolb/XcodeGen)
 
 ```sh
 xcodegen generate
-open TunisianCards.xcodeproj
+open Cards.xcodeproj
 ```
 
-Select the **TunisianCards** scheme and run on any iPhone simulator or device.
+Select the **Cards** scheme and run on any iPhone simulator or device.
 
 ## Tests
 
@@ -38,7 +38,7 @@ fuzz suite that plays 1000+ full bot-vs-bot games at every difficulty
 asserting no illegal action ever occurs and every game terminates.
 
 ```sh
-xcodebuild -project TunisianCards.xcodeproj -scheme TunisianCards \
+xcodebuild -project Cards.xcodeproj -scheme Cards \
   -destination 'platform=iOS Simulator,name=iPhone 17' test
 ```
 

@@ -169,17 +169,33 @@ final class RamiGameViewModel {
         return false
     }
 
-    /// Tap on the previous player's last throw: takes it directly after the
-    /// first lay-down, or toggles it into the meld selection before it.
+    /// Tap on the previous player's last throw takes it. Before the first
+    /// lay-down this is a commitment: the engine either locks the turn until
+    /// a qualifying lay-down or ends the round with the 100-point penalty.
     func tapTakeableThrow() {
         guard isHumanTurn, humanStage == .awaitingDraw, state.throwTakeUnlocked,
-              let takeable = takeableThrow else { return }
-        if state.players[humanSeat].hasLaidDown {
-            Haptics.action()
-            apply(.takeThrow)
-        } else {
-            toggleSelection(takeable)
+              takeableThrow != nil else { return }
+        Haptics.action()
+        apply(.takeThrow)
+    }
+
+    /// True while a pre-lay-down take must still be honored.
+    var mustLayDownNow: Bool {
+        if case .turn(let seat, .awaitingThrow(drew: .takenThrow, _)) = state.phase,
+           seat == humanSeat, !state.players[humanSeat].hasLaidDown {
+            return true
         }
+        return false
+    }
+
+    /// Lays the best qualifying combination for the player — the safety net
+    /// when a forced lay-down is due but hard to spot by hand.
+    func autoLayDown() {
+        let hand = state.players[humanSeat].hand
+        let partition = HandAnalysis.bestPartition(hand: hand, maxCovered: hand.count - 1)
+        guard partition.value >= state.requiredLayDown, !partition.melds.isEmpty else { return }
+        Haptics.action()
+        apply(.layDown(melds: partition.melds))
     }
 
     // MARK: Deal & draw animation state

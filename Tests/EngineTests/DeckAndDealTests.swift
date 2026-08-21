@@ -1,5 +1,5 @@
 import Testing
-@testable import TunisianCards
+@testable import Cards
 
 struct DeckTests {
     @Test func fullDeckHas108UniqueCards() {

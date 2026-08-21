@@ -43,5 +43,6 @@ enum RamiError: Error, Equatable, Sendable {
     case noJokerInMeld
     case cannotAppendHere
     case cannotForcePass
+    case layDownLocked
     case pileEmpty
 }

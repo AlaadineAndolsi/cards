@@ -3,7 +3,7 @@ import Foundation
 /// All user-facing copy, centralized for future FR localization.
 enum L10n {
     static let appTitle = "Cards"
-    static let rami = "Rami"
+    static let rami = "Rummy"
     static let chkobba = "Chkobba"
     static let comingSoon = "Coming soon"
     static let settings = "Settings"
@@ -29,6 +29,7 @@ enum L10n {
     static let takeThrow = "Take throw"
     static let takeAndLayDown = "Take & lay down"
     static let layDown = "Lay down"
+    static let layDownAuto = "Lay down (auto)"
     static let addToMeld = "Add to meld"
     static let swapJoker = "Swap joker"
     static let throwCard = "Throw"
