@@ -50,7 +50,10 @@ struct GameTableView: View {
                     Color.black.opacity(0.001)
                         .ignoresSafeArea()
                         .onTapGesture {
-                            withAnimation(.cardSpring) { viewModel.meldPreviewShown = false }
+                            withAnimation(.cardSpring) {
+                                viewModel.meldPreviewShown = false
+                                viewModel.popupPickedCardID = nil
+                            }
                         }
                     MeldPreviewOverlay(viewModel: viewModel)
                         .position(x: geometry.size.width / 2, y: geometry.size.height * 0.40)
@@ -815,9 +818,36 @@ struct MeldPreviewOverlay: View {
             }
             .frame(maxHeight: 400)
             .fixedSize(horizontal: false, vertical: true)
-            Text("Drop a card on a series — or select one and tap the series")
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.secondary)
+            // Your playable cards: tap one to place it (when several series
+            // fit, it waits highlighted for you to tap the target).
+            if !viewModel.popupCandidates.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 5) {
+                        ForEach(viewModel.popupCandidates, id: \.id) { card in
+                            CardView(card: card)
+                                .frame(width: 44)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 5)
+                                        .strokeBorder(
+                                            viewModel.popupPickedCardID == card.id
+                                                ? Theme.accent : .clear,
+                                            lineWidth: 2.5))
+                                .onTapGesture { viewModel.popupPick(card) }
+                        }
+                    }
+                    .padding(.horizontal, 4)
+                }
+                .padding(.top, 4)
+                Text("Tap a card to place it on a series")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            } else {
+                Text(viewModel.canAppendToTable
+                     ? "No card in your hand fits these series"
+                     : "Lay down first to add cards here")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(10)
         .background(Color.black.opacity(0.25), in: RoundedRectangle(cornerRadius: 16))
@@ -864,7 +894,18 @@ struct MeldPreviewOverlay: View {
                         viewModel.meldDropFrames[tableMeld.id] = frame
                     }
             })
-        .onTapGesture { viewModel.tapPreviewMeld(tableMeld.id) }
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(pickedFits(tableMeld.id) ? Theme.accent : .clear, lineWidth: 2))
+        .onTapGesture { viewModel.popupTapMeld(tableMeld.id) }
+    }
+
+    /// True when the picked popup card fits this meld — its drop target glows.
+    private func pickedFits(_ meldID: UUID) -> Bool {
+        guard let pickedID = viewModel.popupPickedCardID,
+              let card = viewModel.humanHand.first(where: { $0.id == pickedID })
+        else { return false }
+        return viewModel.fittingMelds(for: card).contains(meldID)
     }
 
     /// The real card in hand that could free this meld's joker (after lay-down).

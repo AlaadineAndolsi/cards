@@ -267,17 +267,64 @@ final class RummyGameViewModel {
         return nil
     }
 
-    /// Tapping a big meld in the popup appends the single selected card.
-    func tapPreviewMeld(_ id: UUID) {
-        guard selectedCardIDs.count == 1,
-              let card = state.players[humanSeat].hand.first(where: {
-                  selectedCardIDs.contains($0.id)
-              }) else { return }
-        appendCard(card, to: id)
+    // MARK: Melds popup — pick one of your playable cards and place it
+
+    /// Card picked inside the melds popup, waiting for a target meld.
+    var popupPickedCardID: Int?
+
+    /// Hand cards that currently fit at least one meld on the table.
+    var popupCandidates: [Card] {
+        guard canAppendToTable else { return [] }
+        return humanHand.filter { !fittingMelds(for: $0).isEmpty }
     }
 
-    /// Appends a hand card to a table meld (tap or hover-drop).
-    func appendCard(_ card: Card, to meldID: UUID) {
+    /// The melds this card could legally extend right now.
+    func fittingMelds(for card: Card) -> [UUID] {
+        state.tableMelds.compactMap { tableMeld in
+            guard tableMeld.meld.entries.count < Meld.maxSize else { return nil }
+            let entry: MeldEntry?
+            if card.isJoker {
+                entry = tableMeld.meld.jokerEntryToExtend(joker: card)
+            } else if let rank = card.rank, let suit = card.suit {
+                entry = MeldEntry(card: card, asRank: rank, asSuit: suit)
+            } else {
+                entry = nil
+            }
+            guard let entry, tableMeld.meld.inserting(entry) != nil else { return nil }
+            return tableMeld.id
+        }
+    }
+
+    /// Tap one of your cards in the popup: places it straight away when only
+    /// one meld fits, otherwise waits for you to tap the target meld.
+    func popupPick(_ card: Card) {
+        Haptics.tap()
+        if popupPickedCardID == card.id {
+            popupPickedCardID = nil
+            return
+        }
+        let fits = fittingMelds(for: card)
+        if fits.count == 1 {
+            popupPickedCardID = nil
+            appendCard(card, to: fits[0], keepPopup: true)
+        } else {
+            popupPickedCardID = card.id
+        }
+    }
+
+    /// Tap a meld in the popup: places the picked card (or the single
+    /// selected hand card) onto it.
+    func popupTapMeld(_ id: UUID) {
+        let picked = humanHand.first { $0.id == popupPickedCardID }
+            ?? (selectedCardIDs.count == 1
+                ? humanHand.first { selectedCardIDs.contains($0.id) } : nil)
+        guard let card = picked else { return }
+        popupPickedCardID = nil
+        appendCard(card, to: id, keepPopup: true)
+    }
+
+    /// Appends a hand card to a table meld (popup, tap or hover-drop).
+    func appendCard(_ card: Card, to meldID: UUID, keepPopup: Bool = false) {
         guard let tableMeld = state.tableMelds.first(where: { $0.id == meldID }) else { return }
         let entry: MeldEntry?
         if card.isJoker {
@@ -293,12 +340,12 @@ final class RummyGameViewModel {
             return
         }
         Haptics.action()
-        apply(.appendCard(entry, meldID: meldID))
+        apply(.appendCard(entry, meldID: meldID), keepMeldPreview: keepPopup)
     }
 
     // MARK: Human actions
 
-    func apply(_ action: RummyAction) {
+    func apply(_ action: RummyAction, keepMeldPreview: Bool = false) {
         #if DEBUG
         print("RUMMY human apply: \(action)")
         #endif
@@ -312,7 +359,10 @@ final class RummyGameViewModel {
             }
             lastError = nil
             selectedCardIDs = []
-            meldPreviewShown = false
+            if !keepMeldPreview {
+                meldPreviewShown = false
+                popupPickedCardID = nil
+            }
             syncHandOrder()
             pruneLocks()
             applySortIfActive()  // fresh draws slot straight into the active sort
