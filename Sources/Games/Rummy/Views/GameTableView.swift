@@ -266,18 +266,9 @@ struct GameTableView: View {
                 .position(meldsAnchor(offset, in: size))
             }
             centerStage(in: size)
-            // Draw pile under the left player; tap to purchase.
-            if !deckIsCenterStage {
-                PileView(count: state.drawPile.count, enabled: canPurchase) {
-                    guard canPurchase else { return }
-                    Haptics.action()
-                    withAnimation(reduceMotion ? .default : .cardSpring) {
-                        viewModel.apply(.drawFromPile)
-                    }
-                }
-                .position(pileAnchor(in: size))
-                .transition(.scale(scale: 0.6).combined(with: .opacity))
-            }
+            // The stock: one view, center stage while shuffling and dealing,
+            // then it GLIDES down to its corner spot.
+            stockView(in: size)
             // Sort / cancel actions under the right player.
             handActions
                 .position(x: size.width - 46, y: size.height * 0.57)
@@ -325,16 +316,36 @@ struct GameTableView: View {
     /// The center of the table: the full deck while shuffling/dealing,
     /// otherwise the single most recent throw.
     @ViewBuilder
+    /// One persistent stock view: the full deck at center while shuffling and
+    /// dealing, gliding to the corner as a small pile once the deal is done.
+    private func stockView(in size: CGSize) -> some View {
+        Group {
+            if deckIsCenterStage {
+                DeckCenterView(
+                    count: viewModel.animatedPileCount ?? state.drawPile.count,
+                    shuffles: dealingShuffleCount,
+                    showShuffles: isDealingPhase,
+                    reduceMotion: reduceMotion)
+                .transition(.opacity)
+            } else {
+                PileView(count: state.drawPile.count, enabled: canPurchase) {
+                    guard canPurchase else { return }
+                    Haptics.action()
+                    withAnimation(reduceMotion ? .default : .cardSpring) {
+                        viewModel.apply(.drawFromPile)
+                    }
+                }
+                .transition(.opacity)
+            }
+        }
+        .position(deckIsCenterStage ? throwCenter(in: size) : pileAnchor(in: size))
+        .animation(reduceMotion ? .default : .spring(response: 0.55, dampingFraction: 0.8),
+                   value: deckIsCenterStage)
+    }
+
+    @ViewBuilder
     private func centerStage(in size: CGSize) -> some View {
-        if deckIsCenterStage {
-            DeckCenterView(
-                count: viewModel.animatedPileCount ?? state.drawPile.count,
-                shuffles: dealingShuffleCount,
-                showShuffles: isDealingPhase,
-                reduceMotion: reduceMotion)
-            .position(throwCenter(in: size))
-            .transition(.scale(scale: 0.7).combined(with: .opacity))
-        } else {
+        if !deckIsCenterStage {
             // One central throw pile showing only the most recent throw.
             if !showLastThrows {
                 ThrowSpotView(
