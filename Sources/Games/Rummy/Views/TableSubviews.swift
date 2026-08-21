@@ -122,6 +122,37 @@ struct SideMeldsView: View {
     }
 }
 
+extension Meld {
+    /// Display arrangement everywhere melds render: biggest at the LEFT;
+    /// in sets the minority ("different") color leads, and on a two-red /
+    /// two-black split the black cards lead. Runs stay consecutive.
+    var displayEntries: [MeldEntry] {
+        let lowRun = entries.contains { $0.asRank == .two }
+        func rankKey(_ entry: MeldEntry) -> Int {
+            entry.asRank == .ace ? (lowRun ? 1 : 14) : entry.asRank.rawValue
+        }
+        let reds = entries.filter(\.asSuit.isRed).count
+        let blacks = entries.count - reds
+        func colorKey(_ entry: MeldEntry) -> Int {
+            let isRed = entry.asSuit.isRed
+            if reds == blacks { return isRed ? 1 : 0 }   // 2–2: black at left
+            return isRed == (reds > blacks) ? 1 : 0      // minority color left
+        }
+        func suitOrder(_ entry: MeldEntry) -> Int {
+            switch entry.asSuit {
+            case .spades: 0
+            case .hearts: 1
+            case .clubs: 2
+            case .diamonds: 3
+            }
+        }
+        return entries.sorted {
+            (rankKey($1), colorKey($0), suitOrder($0))
+                < (rankKey($0), colorKey($1), suitOrder($1))
+        }
+    }
+}
+
 /// A player's meld rendered as tiny readable chips (rank + suit glyph).
 /// Jokers read unmistakably: an amber chip with a star over the face they play.
 struct MiniMeldView: View {
@@ -130,7 +161,7 @@ struct MiniMeldView: View {
 
     var body: some View {
         HStack(spacing: 1.5) {
-            ForEach(meld.entries, id: \.card.id) { entry in
+            ForEach(meld.displayEntries, id: \.card.id) { entry in
                 VStack(spacing: -1.5) {
                     if entry.card.isJoker {
                         Image(systemName: "star.fill")

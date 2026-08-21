@@ -196,11 +196,10 @@ final class RummyGameViewModel {
         guard let partition = selectionAsPartition else { return }
         Haptics.action()
         for meld in partition.melds {
-            // Locked (and later laid) series always read smallest → biggest,
-            // the biggest card on the right; the ace sits left in A-2-3.
-            let ordered = seriesEntries(meld)
-            lockedSeries.append(ordered.map(\.card.id))
-            lockedMelds.append(Meld(entries: ordered))
+            // Hand display: biggest at the left with the color rule; the
+            // meld itself is stored canonically so the engine accepts it.
+            lockedSeries.append(meld.displayEntries.map(\.card.id))
+            lockedMelds.append(Meld(entries: canonicalEntries(meld)))
         }
         selectedCardIDs = []
         rebuildHandOrder()
@@ -215,27 +214,19 @@ final class RummyGameViewModel {
             return
         }
         Haptics.action()
-        apply(.layDown(melds: partition.melds.map { Meld(entries: seriesEntries($0)) }))
+        apply(.layDown(melds: partition.melds.map { Meld(entries: canonicalEntries($0)) }))
     }
 
-    /// Locked and laid series always read biggest → smallest, biggest at the
-    /// LEFT. In sets the minority ("different") color sits at the left; with
-    /// two red and two black, the black cards sit left.
-    private func seriesEntries(_ meld: Meld) -> [MeldEntry] {
+    /// The engine's validator expects run entries in ascending order — this
+    /// is the canonical form every meld is laid with. The biggest-left,
+    /// color-ruled arrangement is display-only (`Meld.displayEntries`).
+    private func canonicalEntries(_ meld: Meld) -> [MeldEntry] {
         let lowRun = meld.entries.contains { $0.asRank == .two }
         func rankKey(_ entry: MeldEntry) -> Int {
             entry.asRank == .ace ? (lowRun ? 1 : 14) : entry.asRank.rawValue
         }
-        let reds = meld.entries.filter(\.asSuit.isRed).count
-        let blacks = meld.entries.count - reds
-        func colorKey(_ entry: MeldEntry) -> Int {
-            let isRed = entry.asSuit.isRed
-            if reds == blacks { return isRed ? 1 : 0 }   // 2–2: black at left
-            return isRed == (reds > blacks) ? 1 : 0      // minority color left
-        }
         return meld.entries.sorted {
-            (rankKey($1), colorKey($0), suitIndex($0.card))
-                < (rankKey($0), colorKey($1), suitIndex($1.card))
+            (rankKey($0), suitIndex($0.card)) < (rankKey($1), suitIndex($1.card))
         }
     }
 

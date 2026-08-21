@@ -784,7 +784,7 @@ struct LayDownRevealView: View {
         VStack(spacing: 8) {
             ForEach(Array(reveal.melds.enumerated()), id: \.offset) { _, meld in
                 HStack(spacing: 4) {
-                    ForEach(meld.entries, id: \.card.id) { entry in
+                    ForEach(meld.displayEntries, id: \.card.id) { entry in
                         CardView(card: entry.card)
                             .frame(width: 52)
                     }
@@ -866,7 +866,7 @@ struct MeldPreviewOverlay: View {
 
     private func meldRow(_ tableMeld: TableMeld) -> some View {
         HStack(spacing: 3) {
-            ForEach(tableMeld.meld.entries, id: \.card.id) { entry in
+            ForEach(tableMeld.meld.displayEntries, id: \.card.id) { entry in
                 VStack(spacing: 2) {
                     CardView(card: entry.card)
                         .frame(width: 44)
