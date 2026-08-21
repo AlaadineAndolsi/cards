@@ -598,13 +598,25 @@ final class RummyGameViewModel {
             }
         }()
         if endedNow {
-            // Round endings show their score sheet right away — no
-            // announcement in between. Only the match end gets a beat.
-            if case .matchEnded = state.phase {
+            // Closing goes straight to the score sheet. A missed count is
+            // announced first so the +100 is unmistakable, then the sheet;
+            // the match end also gets its beat.
+            var announcement: (text: String, hold: Double)?
+            switch state.phase {
+            case .roundEnded(let result):
+                if result.closerSeat == nil, let failed = result.deltas.firstIndex(of: 100) {
+                    announcement = ("\(displayName(failed)) missed the count — +100", 2.6)
+                }
+            case .matchEnded:
+                announcement = (L10n.gameOver, 1.9)
+            default:
+                break
+            }
+            if let announcement {
                 roundEndCurtain = true
-                showBanner(L10n.gameOver, style: .verdict, duration: 2.0)
+                showBanner(announcement.text, style: .verdict, duration: announcement.hold + 0.1)
                 Task { [weak self] in
-                    try? await Task.sleep(for: .seconds(1.9))
+                    try? await Task.sleep(for: .seconds(announcement.hold))
                     self?.roundEndCurtain = false
                 }
             }
