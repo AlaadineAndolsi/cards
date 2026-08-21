@@ -669,6 +669,39 @@ final class RummyGameViewModel {
         // get one more chance to attach beside them.
         loose = attachByRank(loose)
 
+        // Rescue: a leftover pair whose member chains two below (same suit)
+        // to a card parked as a rank-mate pulls it into a real chain —
+        // 8♣ 8♦ 6♦ beats leaving the eights stranded behind the sixes.
+        // Downward only: a low pair never steals support from above.
+        do {
+            var byRank: [Int: [Card]] = [:]
+            for card in loose { byRank[sortRankKey(card), default: []].append(card) }
+            for (value, group) in byRank where group.count >= 2 {
+                var rescued = false
+                for member in group where !rescued {
+                    guard let suit = member.suit else { continue }
+                    for runIndex in runs.indices where !rescued {
+                        for (attachValue, mates) in runs[runIndex].attachments {
+                            guard attachValue < value, value - attachValue <= 2,
+                                  let mateIndex = mates.firstIndex(where: { $0.suit == suit })
+                            else { continue }
+                            let mate = mates[mateIndex]
+                            runs[runIndex].attachments[attachValue]?.remove(at: mateIndex)
+                            var chain = ProtoRun(suit: suit, values: [value, attachValue])
+                            chain.members[value] = member
+                            chain.members[attachValue] = mate
+                            let others = group.filter { $0.id != member.id }
+                            if !others.isEmpty { chain.attachments[value] = others }
+                            runs.append(chain)
+                            loose.removeAll { card in group.contains { $0.id == card.id } }
+                            rescued = true
+                            break
+                        }
+                    }
+                }
+            }
+        }
+
         // With two jokers in hand, a leftover pair is a ready set (the pair
         // plus joker twins) — it becomes a combo block placed by its rank,
         // landing right after the jokers when it outranks the runs.
