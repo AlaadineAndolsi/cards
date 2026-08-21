@@ -667,50 +667,30 @@ struct DeckCenterView: View {
     }
 }
 
-/// One center-table banner style for all feedback: capsule material like the
-/// header for info, big animated text for verdicts.
+/// Every center-table message wears the same dress as the "Play!" verdict:
+/// icon over black-serif amber text on a glowing glass card. Verdicts are a
+/// size up; everything else is identical, just slightly smaller.
 struct CenterBannerView: View {
     let banner: RummyGameViewModel.TableBanner
 
+    private var isVerdict: Bool { banner.style == .verdict }
+
     var body: some View {
-        switch banner.style {
-        case .verdict:
-            VStack(spacing: 6) {
-                if let icon = banner.icon {
-                    Image(systemName: icon)
-                        .font(.title2.weight(.bold))
-                }
-                Text(banner.text)
-                    .font(.system(.title2, design: .serif).weight(.black))
-                    .multilineTextAlignment(.center)
+        VStack(spacing: 6) {
+            if let icon = banner.icon {
+                Image(systemName: icon)
+                    .font((isVerdict ? Font.title2 : .headline).weight(.bold))
             }
-            .foregroundStyle(Theme.accent)
-            .padding(.horizontal, 26)
-            .padding(.vertical, 18)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
-            .shadow(color: Theme.accent.opacity(0.35), radius: 16)
-        case .announce:
-            Label(banner.text, systemImage: banner.icon ?? "bubble.left.fill")
-                .font(.subheadline.weight(.bold))
-                .padding(.horizontal, 16)
-                .padding(.vertical, 9)
-                .background(.ultraThinMaterial, in: Capsule())
-                .foregroundStyle(.primary)
-        case .warn:
-            Label(banner.text, systemImage: banner.icon ?? "exclamationmark.circle.fill")
-                .font(.footnote.weight(.semibold))
-                .padding(.horizontal, 14)
-                .padding(.vertical, 7)
-                .background(.ultraThinMaterial, in: Capsule())
-                .foregroundStyle(.red)
-        case .info:
-            Label(banner.text, systemImage: banner.icon ?? "info.circle")
-                .font(.footnote.weight(.semibold))
-                .padding(.horizontal, 14)
-                .padding(.vertical, 7)
-                .background(.ultraThinMaterial, in: Capsule())
-                .foregroundStyle(.primary)
+            Text(banner.text)
+                .font(.system(isVerdict ? .title2 : .headline, design: .serif).weight(.black))
+                .multilineTextAlignment(.center)
         }
+        .foregroundStyle(banner.style == .warn ? Color.red : Theme.accent)
+        .padding(.horizontal, isVerdict ? 26 : 20)
+        .padding(.vertical, isVerdict ? 18 : 13)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
+        .shadow(color: (banner.style == .warn ? Color.red : Theme.accent).opacity(0.35),
+                radius: isVerdict ? 16 : 11)
     }
 }
 

@@ -380,28 +380,58 @@ final class RummyGameViewModel {
 
     private func applySortIfActive() {
         guard !sortPriority.isEmpty else { return }
-        // Unselected keys still break ties, after the chosen ones.
-        let keys = sortPriority + [SortKey.rank, .suit].filter { !sortPriority.contains($0) }
         let locked = lockedSeries.flatMap { $0 }
-        let rest = state.players[humanSeat].hand
-            .filter { !locked.contains($0.id) }
-            .sorted { a, b in
-                for key in keys {
-                    switch key {
-                    case .rank:
-                        // Bigger numbers always on the left; ace above king.
-                        if sortRankKey(a) != sortRankKey(b) {
-                            return sortRankKey(a) > sortRankKey(b)
-                        }
-                    case .suit:
-                        if suitIndex(a) != suitIndex(b) {
-                            return suitIndex(a) < suitIndex(b)
-                        }
-                    }
-                }
-                return a.id < b.id
+        let rest = state.players[humanSeat].hand.filter { !locked.contains($0.id) }
+        let ordered: [Card]
+        if sortPriority.first == .rank {
+            ordered = rankChainedOrder(rest)
+        } else {
+            ordered = rest.sorted {
+                (suitIndex($0), sortRankKey($1), $0.id)
+                    < (suitIndex($1), sortRankKey($0), $1.id)
             }
-        handOrder = locked + rest.map(\.id)
+        }
+        handOrder = locked + ordered.map(\.id)
+    }
+
+    /// Number-first sort: jokers leftmost, ranks descending (ace above king),
+    /// and within each rank group the suits are chained — a group's last card
+    /// matches the next group's first suit whenever possible, so budding runs
+    /// sit next to each other across the rank boundaries.
+    private func rankChainedOrder(_ cards: [Card]) -> [Card] {
+        let jokers = cards.filter(\.isJoker)
+        let grouped = Dictionary(grouping: cards.filter { !$0.isJoker }) { sortRankKey($0) }
+        let keys = grouped.keys.sorted(by: >)
+        var result = jokers
+        var leadSuit: Suit?
+        for (index, key) in keys.enumerated() {
+            var group = grouped[key]!.sorted {
+                (suitIndex($0), $0.id) < (suitIndex($1), $1.id)
+            }
+            // Enter on the suit the previous group handed over.
+            if let lead = leadSuit,
+               let entry = group.firstIndex(where: { $0.suit == lead }) {
+                group.insert(group.remove(at: entry), at: 0)
+            }
+            // Exit on a suit the next group can pick up.
+            let nextSuits: Set<Suit> = index + 1 < keys.count
+                ? Set(grouped[keys[index + 1]]!.compactMap(\.suit))
+                : []
+            var exitCard: Card?
+            let candidates = group.indices.filter {
+                group[$0].suit.map(nextSuits.contains) ?? false
+            }
+            if let pick = candidates.last(where: { $0 != 0 }) {
+                let card = group.remove(at: pick)
+                group.append(card)
+                exitCard = card
+            } else if group.count == 1, candidates.first != nil {
+                exitCard = group[0]  // one card serves as entry and exit
+            }
+            leadSuit = exitCard?.suit
+            result.append(contentsOf: group)
+        }
+        return result
     }
 
     /// Manual reordering takes over: it clears the active sorts.
