@@ -375,7 +375,8 @@ struct GameTableView: View {
             sortAction("textformat.123", key: .rank)
             sortAction("suit.spade.fill", key: .suit)
             smallAction("xmark.circle", active: false) { viewModel.cancelSelection() }
-                .opacity(viewModel.selectedCardIDs.isEmpty ? 0.35 : 1)
+                .opacity(viewModel.selectedCardIDs.isEmpty && viewModel.lockedCardIDs.isEmpty
+                         ? 0.35 : 1)
         }
     }
 

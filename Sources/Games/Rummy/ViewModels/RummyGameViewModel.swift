@@ -415,10 +415,13 @@ final class RummyGameViewModel {
         reorderHand(order)
     }
 
+    /// The reset button clears the selection AND every locked series.
     func cancelSelection() {
-        guard !selectedCardIDs.isEmpty else { return }
+        guard !selectedCardIDs.isEmpty || !lockedSeries.isEmpty else { return }
         Haptics.tap()
         selectedCardIDs = []
+        lockedSeries = []
+        lockedMelds = []
     }
 
     /// Slide-to-throw from the hand; only when a throw is currently legal.
