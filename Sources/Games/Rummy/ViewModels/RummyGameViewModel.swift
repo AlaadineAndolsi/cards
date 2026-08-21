@@ -393,57 +393,152 @@ final class RummyGameViewModel {
         handOrder = locked + ordered.map(\.id)
     }
 
-    /// Smart sort — type and number at once. A card stays with its suit when
-    /// it chains to same-suit neighbors (rank gap ≤ 1, or ≤ 2 when a joker in
-    /// hand can bridge the hole; the ace chains both to the 2 and to the
-    /// king). Everything else falls into the number groups.
+    /// Smart sort — the hand arranged by combo potential:
+    /// 1. Same-suit runs (gap ≤ 1; the ace plays low beside a 2, high
+    ///    otherwise; chains of only 2–4 without an ace dissolve).
+    /// 2. Loose cards that share a rank with a run card attach right beside
+    ///    it, printed on the side that keeps the run line unbroken.
+    /// 3. With a joker in hand, a gap of two extends a run at either end.
+    /// 4. Combos order by their top card; leftovers cluster by number with
+    ///    isolated cards last; anything that fits a lay on the table goes to
+    ///    the far right.
     private func smartOrder(_ cards: [Card]) -> [Card] {
         let jokers = cards.filter(\.isJoker)
-        let maxGap = jokers.isEmpty ? 1 : 2
-        var runCards: [Card] = []
-        var looseCards: [Card] = []
+        let hasJoker = !jokers.isEmpty
+        let nonJokers = cards.filter { !$0.isJoker }
+
+        struct ProtoRun {
+            let suit: Suit
+            var values: [Int]                     // display values, descending
+            var members: [Int: Card] = [:]        // value → the run card
+            var attachments: [Int: [Card]] = [:]  // value → same-rank mates
+        }
+        var runs: [ProtoRun] = []
+
         for suit in [Suit.spades, .hearts, .clubs, .diamonds] {
-            let suited = cards.filter { $0.suit == suit }
+            let suited = nonJokers.filter { $0.suit == suit }
             guard !suited.isEmpty else { continue }
             var values = Set(suited.compactMap { $0.rank?.rawValue })
-            if values.contains(1) { values.insert(14) }  // ace also sits above the king
-            var clusters: [[Int]] = []
+            let hasAce = values.contains(1)
+            if hasAce { values.insert(14) }
+            var chains: [[Int]] = []
             var current: [Int] = []
             for value in values.sorted() {
-                if let last = current.last, value - last > maxGap {
-                    clusters.append(current)
+                if let last = current.last, value - last > 1 {
+                    chains.append(current)
                     current = []
                 }
                 current.append(value)
             }
-            if !current.isEmpty { clusters.append(current) }
-            var runValues = Set<Int>()
-            for cluster in clusters where cluster.count >= 2 {
-                // A chain of only low cards (2–4, no ace) is weak run
-                // material — it joins the number groups instead.
-                let lowOnly = cluster.allSatisfy { $0 <= 4 } && !cluster.contains(1)
-                if !lowOnly { runValues.formUnion(cluster) }
+            if !current.isEmpty { chains.append(current) }
+            if hasAce {
+                // The ace joins its low chain when a 2 is there, else it
+                // plays high; the phantom twin value disappears.
+                let aceLow = (chains.first { $0.contains(1) }?.count ?? 0) >= 2
+                chains = chains.compactMap { chain -> [Int]? in
+                    var chain = chain
+                    chain.removeAll { $0 == (aceLow ? 14 : 1) }
+                    return chain.isEmpty ? nil : chain
+                }
             }
-            for card in suited {
-                guard let rank = card.rank?.rawValue else { continue }
-                let chains = rank == 1
-                    ? runValues.contains(1) || runValues.contains(14)
-                    : runValues.contains(rank)
-                if chains { runCards.append(card) } else { looseCards.append(card) }
+            for chain in chains {
+                let lowOnly = chain.allSatisfy { $0 <= 4 } && !chain.contains(1)
+                guard chain.count >= 2, !lowOnly else { continue }
+                runs.append(ProtoRun(suit: suit, values: chain.sorted(by: >)))
             }
         }
-        // Loose cards that fit somebody's lays on the table go to the far
-        // right — ready to slide onto a meld.
-        let appendable = looseCards.filter {
+
+        // One run card per value; every other card starts out pending.
+        var pending: [Card] = []
+        for card in nonJokers {
+            guard let suit = card.suit, let raw = card.rank?.rawValue else { continue }
+            let candidates = raw == 1 ? [1, 14] : [raw]
+            var placed = false
+            for index in runs.indices where runs[index].suit == suit && !placed {
+                for value in candidates
+                where runs[index].values.contains(value) && runs[index].members[value] == nil {
+                    runs[index].members[value] = card
+                    placed = true
+                    break
+                }
+            }
+            if !placed { pending.append(card) }
+        }
+
+        // Same-rank mates attach beside their run card.
+        var loose: [Card] = []
+        for card in pending {
+            guard let raw = card.rank?.rawValue else { continue }
+            let candidates = raw == 1 ? [1, 14] : [raw]
+            var placed = false
+            for index in runs.indices where !placed {
+                for value in candidates where runs[index].values.contains(value) {
+                    runs[index].attachments[value, default: []].append(card)
+                    placed = true
+                    break
+                }
+            }
+            if !placed { loose.append(card) }
+        }
+
+        // A joker bridges a two-gap at either end of a run.
+        if hasJoker {
+            var still: [Card] = []
+            for card in loose {
+                guard let suit = card.suit, let raw = card.rank?.rawValue else {
+                    still.append(card)
+                    continue
+                }
+                let displays = raw == 1 ? [14, 1] : [raw]
+                var placed = false
+                for index in runs.indices where runs[index].suit == suit && !placed {
+                    for value in displays {
+                        if value == runs[index].values.first! + 2 {
+                            runs[index].values.insert(value, at: 0)
+                        } else if value == runs[index].values.last! - 2 {
+                            runs[index].values.append(value)
+                        } else {
+                            continue
+                        }
+                        runs[index].members[value] = card
+                        placed = true
+                        break
+                    }
+                }
+                if !placed { still.append(card) }
+            }
+            loose = still
+        }
+
+        // Strong section: combos by top card, descending inside; a mate
+        // prints before its anchor when the run continues below it, after
+        // when the anchor closes the run.
+        var strong: [Card] = []
+        for run in runs.sorted(by: { $0.values.first! > $1.values.first! }) {
+            for (index, value) in run.values.enumerated() {
+                let mates = (run.attachments[value] ?? []).sorted {
+                    (suitIndex($0), $0.id) < (suitIndex($1), $1.id)
+                }
+                let isBottom = index == run.values.count - 1
+                if isBottom {
+                    if let member = run.members[value] { strong.append(member) }
+                    strong.append(contentsOf: mates)
+                } else {
+                    strong.append(contentsOf: mates)
+                    if let member = run.members[value] { strong.append(member) }
+                }
+            }
+        }
+
+        // Loose cards that fit somebody's lays go to the far right.
+        let appendable = loose.filter {
             RummyEngine.throwPenalized($0, tableMelds: state.tableMelds)
         }
-        let loose = looseCards.filter { card in
-            !appendable.contains { $0.id == card.id }
-        }
+        let weak = loose.filter { card in !appendable.contains { $0.id == card.id } }
         let appendableOrdered = appendable.sorted {
             (sortRankKey($1), suitIndex($0), $0.id) < (sortRankKey($0), suitIndex($1), $1.id)
         }
-        return jokers + suitGroupedOrder(runCards) + numberClusters(loose) + appendableOrdered
+        return jokers + strong + numberClusters(weak) + appendableOrdered
     }
 
     /// The number side of the smart sort: same-and-adjacent ranks cluster
