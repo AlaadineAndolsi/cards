@@ -118,6 +118,32 @@ struct LayDownTests {
         #expect(result.deltas[0] == 100)
     }
 
+    @Test func appendsUnlockOnceThePendingLayDownMeetsTheCount() throws {
+        // Laid 60/60 this turn (unconfirmed): melds already open for appends.
+        var config = RulesConfig.default
+        config.minimumLayDown = 60
+        let queenOfKings = TestCards.card(.king, .diamonds)
+        let s = turnState(hand: handWith(kings + aces + [queenOfKings], filler: 8), config: config)
+        var laid = try StateBuilder.apply(.layDown(melds: [meldOf(kings), meldOf(aces)]), by: 0, to: s)
+        #expect(!laid.players[0].hasLaidDown)
+        let kingsMeldID = laid.tableMelds[0].id
+        laid = try StateBuilder.apply(
+            .appendCard(MeldEntry(card: queenOfKings, asRank: .king, asSuit: .diamonds),
+                        meldID: kingsMeldID),
+            by: 0, to: laid)
+        #expect(laid.tableMelds[0].meld.entries.count == 4)
+
+        // But short of the count, melds stay locked.
+        let short = turnState(hand: handWith(smallRun + [queenOfKings], filler: 8), config: config)
+        let shortLaid = try StateBuilder.apply(.layDown(melds: [meldOf(smallRun)]), by: 0, to: short)
+        #expect(throws: RummyError.notLaidDownYet) {
+            try StateBuilder.apply(
+                .appendCard(MeldEntry(card: queenOfKings, asRank: .king, asSuit: .diamonds),
+                            meldID: shortLaid.tableMelds[0].id),
+                by: 0, to: shortLaid)
+        }
+    }
+
     @Test func subsequentLayDownsHaveNoThreshold() throws {
         let s = turnState(hand: handWith(smallRun, filler: 12), laidDown: true, lastInitial: 80)
         let after = try StateBuilder.apply(.layDown(melds: [meldOf(smallRun)]), by: 0, to: s)

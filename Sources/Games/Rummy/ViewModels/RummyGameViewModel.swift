@@ -183,10 +183,11 @@ final class RummyGameViewModel {
         }
     }
 
-    /// Hover-to-append is only meaningful once the human can append at all.
+    /// Hover-to-append is only meaningful once the human can append at all —
+    /// confirmed lay-down, or laid this turn with the required count met.
     var canAppendToTable: Bool {
         guard isHumanTurn, case .awaitingThrow = humanStage,
-              state.players[humanSeat].hasLaidDown,
+              RummyEngine.canTouchMelds(state, seat: humanSeat),
               !state.tableMelds.isEmpty else { return false }
         return true
     }

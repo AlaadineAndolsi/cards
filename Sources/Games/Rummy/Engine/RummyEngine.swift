@@ -112,7 +112,7 @@ enum RummyEngine {
 
         case (.appendCard(let entry, let meldID), .turn(let turnSeat, .awaitingThrow(let drew, let pendingJoker))):
             guard seat == turnSeat else { throw RummyError.notYourTurn }
-            guard s.players[seat].hasLaidDown else { throw RummyError.notLaidDownYet }
+            guard Self.canTouchMelds(s, seat: seat) else { throw RummyError.notLaidDownYet }
             guard let index = s.tableMelds.firstIndex(where: { $0.id == meldID }) else {
                 throw RummyError.meldNotFound
             }
@@ -131,7 +131,7 @@ enum RummyEngine {
 
         case (.swapJoker(let meldID, let realCard), .turn(let turnSeat, .awaitingThrow(let drew, let pendingJoker))):
             guard seat == turnSeat else { throw RummyError.notYourTurn }
-            guard s.players[seat].hasLaidDown else { throw RummyError.notLaidDownYet }
+            guard Self.canTouchMelds(s, seat: seat) else { throw RummyError.notLaidDownYet }
             guard pendingJoker == nil else { throw RummyError.jokerPending }
             guard let meldIndex = s.tableMelds.firstIndex(where: { $0.id == meldID }) else {
                 throw RummyError.meldNotFound
@@ -209,6 +209,13 @@ enum RummyEngine {
     }
 
     // MARK: - Helpers
+
+    /// Melds open up once the player's lay-down is confirmed — or already
+    /// laid this turn with the required count met (the discard just seals it).
+    static func canTouchMelds(_ s: RummyState, seat: Int) -> Bool {
+        s.players[seat].hasLaidDown
+            || (s.players[seat].pendingLayDownValue ?? 0) >= s.requiredLayDown
+    }
 
     /// A throw is penalized when the card is a joker or fits any table meld.
     static func throwPenalized(_ card: Card, tableMelds: [TableMeld]) -> Bool {
