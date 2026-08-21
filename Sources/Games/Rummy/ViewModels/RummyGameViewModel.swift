@@ -667,13 +667,23 @@ final class RummyGameViewModel {
             }
         }
 
-        // Loose cards that fit somebody's lays go to the far right.
+        // Loose cards that fit somebody's lays go to the far right, with
+        // their own sort: grouped by the meld they extend (in table order),
+        // smallest first within a group — the order you would append them.
         let appendable = loose.filter {
             RummyEngine.throwPenalized($0, tableMelds: state.tableMelds)
         }
         let weak = loose.filter { card in !appendable.contains { $0.id == card.id } }
-        let appendableOrdered = appendable.sorted {
-            (sortRankKey($1), suitIndex($0), $0.id) < (sortRankKey($0), suitIndex($1), $1.id)
+        func targetMeldIndex(_ card: Card) -> Int {
+            fittingMelds(for: card).first
+                .flatMap { id in state.tableMelds.firstIndex { $0.id == id } }
+                ?? Int.max
+        }
+        let appendableOrdered = appendable.sorted { a, b in
+            let meldA = targetMeldIndex(a)
+            let meldB = targetMeldIndex(b)
+            if meldA != meldB { return meldA < meldB }
+            return (sortRankKey(a), suitIndex(a), a.id) < (sortRankKey(b), suitIndex(b), b.id)
         }
         return jokers + strong
             + numberClusters(weak, leadingSuit: strong.last?.suit,
