@@ -228,11 +228,19 @@ enum RummyEngine {
     }
 
     /// A throw is penalized when the card is a joker or fits any table meld.
+    /// A throw is wasted (+10, card bounces back) when the card could be
+    /// placed into a table meld instead: it extends one, or it is the real
+    /// card behind a played joker (a swap would seat it in the meld).
     static func throwPenalized(_ card: Card, tableMelds: [TableMeld]) -> Bool {
         if card.isJoker { return true }
         guard let rank = card.rank, let suit = card.suit else { return false }
         let entry = MeldEntry(card: card, asRank: rank, asSuit: suit)
-        return tableMelds.contains { $0.meld.inserting(entry) != nil }
+        return tableMelds.contains { tableMeld in
+            tableMeld.meld.inserting(entry) != nil
+                || tableMeld.meld.entries.contains {
+                    $0.card.isJoker && $0.asRank == rank && $0.asSuit == suit
+                }
+        }
     }
 
     /// True when some meld combination (keeping at least one card to throw)

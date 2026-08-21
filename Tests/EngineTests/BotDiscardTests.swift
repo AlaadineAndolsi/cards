@@ -171,4 +171,27 @@ struct BotDiscardTests {
             }
         }
     }
+
+    @Test func cardBehindATableJokerIsNeverThrown() {
+        // 5♠-JOKER(as 6♠)-7♠ on the table: the real 6♠ is placeable by swap,
+        // so no bot at any level may throw it while an alternative exists.
+        let meld = Meld(entries: [
+            TestCards.entry(.five, .spades),
+            TestCards.jokerEntry(as: .six, .spades),
+            TestCards.entry(.seven, .spades),
+        ])
+        let hand = [TestCards.card(.six, .spades), TestCards.card(.queen, .hearts),
+                    TestCards.card(.two, .diamonds)]
+        var s = state(hand: hand, turnsCompleted: 8)
+        s.tableMelds = [TableMeld(id: UUID(), ownerSeat: 3, meld: meld)]
+        for level in BotLevel.allCases {
+            for seed in UInt64(0)..<15 {
+                var rng = SeededRNG(seed: seed)
+                let action = RummyBot(level: level).decide(PublicGameView(state: s, seat: 1), rng: &rng)
+                if case .throwCard(let card) = action {
+                    #expect(card.rank != .six, "swap-placeable card thrown at \(level)")
+                }
+            }
+        }
+    }
 }

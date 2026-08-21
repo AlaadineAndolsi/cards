@@ -338,3 +338,45 @@ struct ThrowTakeTests {
         #expect(after.lastInitialLayDownTotal == 90)
     }
 }
+
+/// The wasted-throw rule covers every card that can be placed into a table
+/// meld — extensions AND the real card behind a played joker (swap).
+struct WastedThrowTests {
+    private func jokerFaceState() -> RummyState {
+        // Table: 5♠-JOKER(as 6♠)-7♠. Seat 1 holds the real 6♠ plus a safe 2♥.
+        let meld = Meld(entries: [
+            TestCards.entry(.five, .spades),
+            TestCards.jokerEntry(as: .six, .spades),
+            TestCards.entry(.seven, .spades),
+        ])
+        let hand = [TestCards.card(.six, .spades), TestCards.card(.two, .hearts)]
+        let used = Set((hand + meld.cards).map(\.id))
+        return StateBuilder.turn(
+            seat: 1, stage: .awaitingThrow(drew: .pile, pendingJoker: nil),
+            hands: [distinctCards(5, excluding: used), hand, [], []],
+            laidDown: [false, true, false, false],
+            turnsCompleted: 8,
+            tableMelds: [TableMeld(id: UUID(), ownerSeat: 3, meld: meld)])
+    }
+
+    @Test func cardMatchingATableJokerFaceIsPenalized() {
+        let s = jokerFaceState()
+        #expect(RummyEngine.throwPenalized(TestCards.card(.six, .spades), tableMelds: s.tableMelds))
+        #expect(!RummyEngine.throwPenalized(TestCards.card(.two, .hearts), tableMelds: s.tableMelds))
+    }
+
+    @Test func throwingTheJokerFaceCardBouncesWithPenalty() throws {
+        let s = jokerFaceState()
+        let after = try StateBuilder.apply(.throwCard(TestCards.card(.six, .spades)), by: 1, to: s)
+        #expect(after.players[1].hand.count == 2, "the card comes back")
+        #expect(after.players[1].penaltiesThisRound == 10)
+        #expect(after.phase == s.phase, "the turn is not over")
+    }
+
+    @Test func theSafeCardStillGoesThrough() throws {
+        let s = jokerFaceState()
+        let after = try StateBuilder.apply(.throwCard(TestCards.card(.two, .hearts)), by: 1, to: s)
+        #expect(after.players[1].hand.count == 1)
+        #expect(after.players[1].penaltiesThisRound == 0)
+    }
+}
