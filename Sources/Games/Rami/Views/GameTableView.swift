@@ -108,22 +108,31 @@ struct GameTableView: View {
     private func avatarAnchor(_ offset: Int, in size: CGSize) -> CGPoint {
         switch offset {
         case 1: CGPoint(x: size.width - 36, y: size.height * 0.33)
-        case 2: CGPoint(x: size.width / 2, y: 128)
+        case 2: CGPoint(x: size.width / 2, y: 162)
         case 3: CGPoint(x: 36, y: size.height * 0.33)
         default: CGPoint(x: size.width / 2, y: size.height * 0.60)
         }
     }
 
+    /// Lays hug their owner: right under the side seats, beside the top seat.
     private func meldsAnchor(_ offset: Int, in size: CGSize) -> CGPoint {
         switch offset {
-        case 1: CGPoint(x: size.width - 44, y: size.height * 0.33 + 108)
-        case 2: CGPoint(x: size.width / 2, y: 196)
-        default: CGPoint(x: 44, y: size.height * 0.33 + 108)
+        case 1: CGPoint(x: size.width - 44, y: size.height * 0.33 + 82)
+        case 2: CGPoint(x: size.width / 2 - 94, y: 158)
+        default: CGPoint(x: 44, y: size.height * 0.33 + 82)
         }
     }
 
     private func pileAnchor(in size: CGSize) -> CGPoint {
         CGPoint(x: 46, y: size.height * 0.62)
+    }
+
+    /// Exactly the centroid of the three bot seats.
+    private func throwCenter(in size: CGSize) -> CGPoint {
+        let anchors = [1, 2, 3].map { avatarAnchor($0, in: size) }
+        return CGPoint(
+            x: anchors.map(\.x).reduce(0, +) / 3,
+            y: anchors.map(\.y).reduce(0, +) / 3 + 14)  // clear of the top seat's chips
     }
 
     private var activeSeat: Int? {
@@ -155,7 +164,7 @@ struct GameTableView: View {
                 // Melds along that player's own side.
                 SideMeldsView(
                     melds: state.tableMelds.filter { $0.ownerSeat == seatIndex },
-                    horizontal: offset == 2,
+                    horizontal: false,
                     onTap: { zoomedMeldID = $0 })
                 .position(meldsAnchor(offset, in: size))
             }
@@ -175,7 +184,7 @@ struct GameTableView: View {
                         withAnimation(.cardSpring) { showLastThrows = true }
                     }
                 })
-            .position(x: size.width / 2, y: size.height * 0.44)
+            .position(throwCenter(in: size))
             }
             if showLastThrows {
                 LastThrowsView(
@@ -184,7 +193,7 @@ struct GameTableView: View {
                         return (state.players[seatIndex].name,
                                 state.players[seatIndex].throwStack.last)
                     })
-                .position(x: size.width / 2, y: size.height * 0.44)
+                .position(throwCenter(in: size))
                 .onTapGesture { withAnimation(.cardSpring) { showLastThrows = false } }
                 .onChange(of: state) { _, _ in
                     withAnimation(.cardSpring) { showLastThrows = false }

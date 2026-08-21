@@ -173,19 +173,19 @@ struct ThrowSpotView: View {
             if let card {
                 CardView(card: card)
                     .matchedGeometryEffect(id: card.id, in: namespace)
-                    .frame(width: 44)
-                    .shadow(color: .black.opacity(0.3), radius: 3, y: 2)
+                    .frame(width: 66)
+                    .shadow(color: .black.opacity(0.3), radius: 4, y: 3)
             } else {
-                RoundedRectangle(cornerRadius: 5)
-                    .strokeBorder(Color.white.opacity(0.18), style: StrokeStyle(lineWidth: 1, dash: [4]))
-                    .frame(width: 44, height: 60)
+                RoundedRectangle(cornerRadius: 7)
+                    .strokeBorder(Color.white.opacity(0.18), style: StrokeStyle(lineWidth: 1, dash: [5]))
+                    .frame(width: 66, height: 90)
             }
         }
         .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .strokeBorder(highlighted ? Theme.accent : .clear, lineWidth: 2)
-                .shadow(color: highlighted ? Theme.accent.opacity(0.6) : .clear, radius: 6)
-                .frame(width: 50, height: 66))
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(highlighted ? Theme.accent : .clear, lineWidth: 2.5)
+                .shadow(color: highlighted ? Theme.accent.opacity(0.6) : .clear, radius: 7)
+                .frame(width: 74, height: 98))
     }
 }
 
@@ -234,16 +234,16 @@ struct ArcHandView: View {
     @State private var dragStartX: CGFloat = 0
     @State private var dragTranslation: CGSize = .zero
 
-    private let cardWidth: CGFloat = 56
-    private let handHeight: CGFloat = 150
+    private let cardWidth: CGFloat = 70
+    private let handHeight: CGFloat = 200
 
     var body: some View {
         GeometryReader { geometry in
             let cards = viewModel.humanHand
             let count = max(cards.count, 1)
             let width = geometry.size.width
-            let step = count > 1 ? min(34, (width - cardWidth - 24) / CGFloat(count - 1)) : 0
-            let baseY = handHeight - 78
+            let step = count > 1 ? min(42, (width - cardWidth - 20) / CGFloat(count - 1)) : 0
+            let baseY = handHeight - 104
 
             ZStack {
                 ForEach(Array(cards.enumerated()), id: \.element.id) { index, card in
@@ -254,8 +254,8 @@ struct ArcHandView: View {
                         ? dragStartX + dragTranslation.width
                         : width / 2 + centerOffset * step
                     let y = baseY
-                        + pow(centerOffset, 2) * 0.7          // arc: edges dip
-                        + (selected ? -18 : 0)
+                        + pow(centerOffset, 2) * 0.95         // arc: edges dip
+                        + (selected ? -22 : 0)
                         + (isDragged ? dragTranslation.height : 0)
 
                     CardView(card: card)
@@ -265,7 +265,7 @@ struct ArcHandView: View {
                         .overlay(
                             RoundedRectangle(cornerRadius: 5)
                                 .strokeBorder(selected ? Theme.accent : .clear, lineWidth: 2))
-                        .rotationEffect(.degrees(isDragged ? 0 : centerOffset * 2.4))
+                        .rotationEffect(.degrees(isDragged ? 0 : centerOffset * 3.0))
                         .scaleEffect(isDragged ? 1.1 : 1)
                         .position(x: x, y: y)
                         .zIndex(isDragged ? 100 : Double(index))
