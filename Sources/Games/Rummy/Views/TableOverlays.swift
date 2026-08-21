@@ -10,9 +10,9 @@ struct DealControlsView: View {
         VStack {
             Spacer()
             Theme.panel {
-                VStack(spacing: 14) {
+                VStack(spacing: 10) {
                     Text("You deal this round")
-                        .font(.headline)
+                        .font(.subheadline.weight(.bold))
                     Button {
                         shufflePulse += 1
                         onAction(.shuffle)
@@ -20,8 +20,8 @@ struct DealControlsView: View {
                         Label("\(L10n.shuffle)\(shuffles > 0 ? " ×\(shuffles)" : "")",
                               systemImage: "shuffle")
                             .font(.subheadline.weight(.bold))
-                            .padding(.horizontal, 22)
-                            .padding(.vertical, 10)
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 8)
                             .background(Theme.accent, in: Capsule())
                             .foregroundStyle(.black)
                     }
@@ -33,16 +33,25 @@ struct DealControlsView: View {
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())],
-                              spacing: 8) {
-                        ForEach(DealPattern.allCases, id: \.self) { pattern in
-                            patternButton(pattern)
+                    let patterns = DealPattern.allCases
+                    VStack(spacing: 6) {
+                        HStack(spacing: 6) {
+                            patternButton(patterns[0])
+                            patternButton(patterns[1])
                         }
+                        HStack(spacing: 6) {
+                            patternButton(patterns[2])
+                            patternButton(patterns[3])
+                        }
+                        // The fifth pattern sits centered on its own row.
+                        patternButton(patterns[4])
+                            .frame(maxWidth: 150)
                     }
                 }
             }
             .padding(.horizontal, 16)
-            .padding(.bottom, 180)
+            // Low enough that the shuffling deck stays visible above it.
+            .padding(.bottom, 30)
         }
         .transition(.move(edge: .bottom).combined(with: .opacity))
     }
@@ -58,15 +67,15 @@ struct DealControlsView: View {
         } label: {
             VStack(spacing: 3) {
                 Text(digits)
-                    .font(.system(size: 22, weight: .heavy, design: .rounded))
+                    .font(.system(size: 16, weight: .heavy, design: .rounded))
                     .foregroundStyle(Theme.accent)
                 Text(bonus.map { "\($0) dealer" } ?? "even passes")
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 10)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+            .padding(.vertical, 7)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(.plain)
     }
