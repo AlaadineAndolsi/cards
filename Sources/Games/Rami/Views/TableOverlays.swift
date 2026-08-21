@@ -298,38 +298,6 @@ struct ScoreSheetView: View {
     }
 }
 
-/// Full throw history of one player, in order.
-struct ThrowHistorySheet: View {
-    let player: PlayerState
-    let seatName: String
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 6), spacing: 8) {
-                    ForEach(Array(player.throwStack.enumerated()), id: \.element.id) { index, card in
-                        VStack(spacing: 2) {
-                            CardView(card: card)
-                            Text("\(index + 1)")
-                                .font(.system(size: 8))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                .padding(14)
-                if player.throwStack.isEmpty {
-                    Text("No throws yet")
-                        .foregroundStyle(.secondary)
-                        .padding(.top, 40)
-                }
-            }
-            .navigationTitle("\(seatName) — throws")
-            .navigationBarTitleDisplayMode(.inline)
-            .presentationDetents([.medium])
-        }
-    }
-}
-
 /// Zoomed meld for reading, appending, and joker swapping.
 struct MeldZoomSheet: View {
     @State var viewModel: RamiGameViewModel

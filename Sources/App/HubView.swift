@@ -83,7 +83,6 @@ struct HubView: View {
             }
             .tint(Theme.accent)
         }
-        .preferredColorScheme(.dark)
     }
 
     private var fannedCards: some View {

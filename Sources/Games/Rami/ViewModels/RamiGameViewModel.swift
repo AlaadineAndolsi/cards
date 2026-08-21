@@ -20,6 +20,11 @@ final class RamiGameViewModel {
     /// Seat whose bot action just happened, for UI callouts.
     var lastBotNote: String?
     var matchFinished = false
+    /// True while the card-by-card deal animation plays; gates the vote UI
+    /// and pauses the bot loop so the rhythm is visible.
+    var isDealAnimating = false
+    /// The card the human just purchased, briefly revealed center-table.
+    var revealedDraw: Card?
 
     var humanSeat: Int { state.players.firstIndex(where: \.isHuman) ?? 0 }
 
@@ -34,7 +39,7 @@ final class RamiGameViewModel {
         var rng = SystemRandomNumberGenerator()
         let state = RamiEngine.newGame(
             config: settings.config(botLevel: botLevel),
-            names: [L10n.you, "Salah", "Moufida", "Hamadi"],
+            names: [L10n.you, "Salah", "Mongi", "Hamadi"],
             dealerSeat: Int.random(in: 0..<4, using: &rng),
             rng: &rng)
         return RamiGameViewModel(state: state, store: store)
@@ -99,10 +104,16 @@ final class RamiGameViewModel {
         print("RAMI human apply: \(action)")
         #endif
         do {
+            let before = state.players[humanSeat].hand
             state = try RamiEngine.apply(action, by: humanSeat, to: state, rng: &rng)
             lastError = nil
             selectedCardIDs = []
             syncHandOrder()
+            if case .deal = action { startDealHold() }
+            if case .drawFromPile = action,
+               let drawn = state.players[humanSeat].hand.last, !before.contains(drawn) {
+                revealDraw(drawn)
+            }
             autosave()
             resumeBotsIfNeeded()
         } catch let error as RamiError {
@@ -146,6 +157,54 @@ final class RamiGameViewModel {
         handOrder = order
     }
 
+    func cancelSelection() {
+        guard !selectedCardIDs.isEmpty else { return }
+        Haptics.tap()
+        selectedCardIDs = []
+    }
+
+    /// Slide-to-throw from the hand; only when a throw is currently legal.
+    var canThrow: Bool {
+        if case .awaitingThrow = humanStage { return true }
+        return false
+    }
+
+    /// Tap on the previous player's last throw: takes it directly after the
+    /// first lay-down, or toggles it into the meld selection before it.
+    func tapTakeableThrow() {
+        guard isHumanTurn, humanStage == .awaitingDraw, state.throwTakeUnlocked,
+              let takeable = takeableThrow else { return }
+        if state.players[humanSeat].hasLaidDown {
+            Haptics.action()
+            apply(.takeThrow)
+        } else {
+            toggleSelection(takeable)
+        }
+    }
+
+    // MARK: Deal & draw animation state
+
+    private func startDealHold() {
+        guard let pattern = state.lastDealPattern else { return }
+        let cards = pattern.passes(playerCount: state.aliveCount)
+            .reduce(0) { $0 + $1.reduce(0, +) }
+        let passes = pattern.passes(playerCount: state.aliveCount).count
+        let duration = Double(cards) * 0.05 + Double(passes) * 0.22 + 0.9
+        isDealAnimating = true
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(duration))
+            self?.isDealAnimating = false
+        }
+    }
+
+    private func revealDraw(_ card: Card) {
+        revealedDraw = card
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1.1))
+            if self?.revealedDraw == card { self?.revealedDraw = nil }
+        }
+    }
+
     func abandonMatch() {
         botTask?.cancel()
         Task { await store.clearActiveGame() }
@@ -184,6 +243,9 @@ final class RamiGameViewModel {
             defer { self?.botTask = nil }
             while let self, !Task.isCancelled, let seat = self.actingSeat,
                   !self.state.players[seat].isHuman {
+                while self.isDealAnimating, !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(0.2))
+                }
                 let pause = self.pauseForNextBotAction()
                 try? await Task.sleep(for: .seconds(pause))
                 guard !Task.isCancelled else { return }
@@ -195,6 +257,7 @@ final class RamiGameViewModel {
                 #endif
                 do {
                     self.state = try RamiEngine.apply(action, by: seat, to: self.state, rng: &rng)
+                    if case .deal = action { self.startDealHold() }
                     self.noteBotAction(action, seat: seat)
                     self.syncHandOrder()
                     self.autosave()

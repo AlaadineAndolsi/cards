@@ -2,7 +2,7 @@ import Foundation
 
 /// All user-facing copy, centralized for future FR localization.
 enum L10n {
-    static let appTitle = "Tunisian Cards"
+    static let appTitle = "Cards"
     static let rami = "Rami"
     static let chkobba = "Chkobba"
     static let comingSoon = "Coming soon"

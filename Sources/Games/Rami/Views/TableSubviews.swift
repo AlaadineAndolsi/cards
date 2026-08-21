@@ -1,81 +1,87 @@
 import SwiftUI
 
-/// A bot seat: avatar, name, score chip, dealer badge, hand-count, active ring,
-/// and that player's mini-melds stacked beside it.
+/// A bot seat: avatar, name, score chip, hand count, dealer badge, active ring.
 struct SeatView: View {
     let player: PlayerState
     let isDealer: Bool
     let isActive: Bool
-    let melds: [TableMeld]
-    let onMeldTap: (UUID) -> Void
 
     var body: some View {
-        VStack(spacing: 4) {
-            avatar
-            if !melds.isEmpty { meldColumn }
-        }
-    }
-
-    private var avatar: some View {
-        VStack(spacing: 3) {
+        VStack(spacing: 2) {
             ZStack(alignment: .topTrailing) {
                 Circle()
-                    .fill(Color.white.opacity(0.10))
-                    .frame(width: 46, height: 46)
+                    .fill(Color.black.opacity(0.22))
+                    .frame(width: 36, height: 36)
                     .overlay(
                         Text(String(player.name.prefix(1)))
-                            .font(.system(.title3, design: .serif).weight(.bold))
+                            .font(.system(size: 16, design: .serif).weight(.bold))
                             .foregroundStyle(.white))
                     .overlay(
                         Circle().strokeBorder(
-                            isActive ? Theme.accent : Color.white.opacity(0.15),
+                            isActive ? Theme.accent : Color.white.opacity(0.2),
                             lineWidth: isActive ? 2.5 : 1))
                     .shadow(color: isActive ? Theme.accent.opacity(0.55) : .clear, radius: 7)
                 if isDealer {
                     Text("D")
-                        .font(.system(size: 9, weight: .black))
-                        .padding(4)
+                        .font(.system(size: 8, weight: .black))
+                        .padding(3)
                         .background(Theme.accent, in: Circle())
                         .foregroundStyle(.black)
                         .offset(x: 4, y: -3)
                 }
             }
             Text(player.name)
-                .font(.system(size: 10, weight: .semibold))
+                .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(.white)
-            HStack(spacing: 4) {
+            HStack(spacing: 3) {
                 Text("\(player.totalScore)")
-                    .font(.system(size: 9, weight: .bold, design: .rounded))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
+                    .font(.system(size: 8, weight: .bold, design: .rounded))
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1.5)
                     .background(Color.black.opacity(0.35), in: Capsule())
                     .foregroundStyle(Theme.accent)
-                Label("\(player.handCountLabel)", systemImage: "rectangle.portrait.on.rectangle.portrait.fill")
-                    .font(.system(size: 8, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.7))
-                    .labelStyle(.titleAndIcon)
+                Label("\(player.hand.count)", systemImage: "rectangle.portrait.on.rectangle.portrait.fill")
+                    .font(.system(size: 7.5, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.75))
             }
         }
         .animation(.cardSpring, value: isActive)
     }
-
-    private var meldColumn: some View {
-        VStack(alignment: .center, spacing: 3) {
-            ForEach(melds.prefix(4)) { tableMeld in
-                MiniMeldView(meld: tableMeld.meld)
-                    .onTapGesture { onMeldTap(tableMeld.id) }
-            }
-            if melds.count > 4 {
-                Text("+\(melds.count - 4)")
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(Theme.accent)
-            }
-        }
-    }
 }
 
-private extension PlayerState {
-    var handCountLabel: String { "\(hand.count)" }
+/// Popup: each player's most recent throw.
+struct LastThrowsView: View {
+    let players: [(name: String, card: Card?)]
+
+    init(players: [(name: String, card: Card?)]) {
+        self.players = players
+        #if DEBUG
+        print("RAMI LastThrowsView init with \(players.count) players")
+        #endif
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ForEach(players, id: \.name) { entry in
+                VStack(spacing: 4) {
+                    if let card = entry.card {
+                        CardView(card: card).frame(width: 48)
+                    } else {
+                        RoundedRectangle(cornerRadius: 5)
+                            .strokeBorder(Color.secondary.opacity(0.4),
+                                          style: StrokeStyle(lineWidth: 1, dash: [4]))
+                            .frame(width: 48, height: 65)
+                    }
+                    Text(entry.name)
+                        .font(.system(size: 9, weight: .semibold))
+                }
+            }
+        }
+        .padding(12)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .shadow(color: .black.opacity(0.3), radius: 10, y: 4)
+        .transition(.scale(scale: 0.8).combined(with: .opacity))
+    }
 }
 
 struct EliminatedSeatView: View {
@@ -84,15 +90,36 @@ struct EliminatedSeatView: View {
     var body: some View {
         VStack(spacing: 3) {
             Circle()
-                .fill(Color.white.opacity(0.04))
+                .fill(Color.black.opacity(0.12))
                 .frame(width: 46, height: 46)
                 .overlay(Image(systemName: "xmark").foregroundStyle(.red.opacity(0.7)))
             Text(name)
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.4))
-            Text(L10n.eliminated)
-                .font(.system(size: 8, weight: .bold))
-                .foregroundStyle(.red.opacity(0.7))
+        }
+    }
+}
+
+/// A player's laid melds stacked along their own side of the table.
+struct SideMeldsView: View {
+    let melds: [TableMeld]
+    let horizontal: Bool
+    let onTap: (UUID) -> Void
+
+    var body: some View {
+        Group {
+            if horizontal {
+                HStack(spacing: 4) { chips }
+            } else {
+                VStack(spacing: 4) { chips }
+            }
+        }
+    }
+
+    private var chips: some View {
+        ForEach(melds.prefix(4)) { tableMeld in
+            MiniMeldView(meld: tableMeld.meld)
+                .onTapGesture { onTap(tableMeld.id) }
         }
     }
 }
@@ -127,44 +154,38 @@ struct MiniMeldView: View {
     }
 }
 
-/// One player's throw stack in the center: last card prominent, small depth
-/// hint underneath, tap to expand the full history.
-struct ThrowStackView: View {
-    let cards: [Card]
-    let isTakeable: Bool
+/// One player's last thrown card, aligned with their seat. Tapping the
+/// previous player's card takes it (when legal).
+struct ThrowSpotView: View {
+    let card: Card?
+    let highlighted: Bool
     let namespace: Namespace.ID
     let onTap: () -> Void
 
     var body: some View {
+        content
+            .contentShape(Rectangle())
+            .onTapGesture(perform: onTap)
+    }
+
+    private var content: some View {
         ZStack {
-            if cards.isEmpty {
-                RoundedRectangle(cornerRadius: 5)
-                    .strokeBorder(Color.white.opacity(0.14), style: StrokeStyle(lineWidth: 1, dash: [4]))
-                    .frame(width: 40, height: 54)
+            if let card {
+                CardView(card: card)
+                    .matchedGeometryEffect(id: card.id, in: namespace)
+                    .frame(width: 44)
+                    .shadow(color: .black.opacity(0.3), radius: 3, y: 2)
             } else {
-                ForEach(Array(cards.suffix(3).enumerated()), id: \.element.id) { index, card in
-                    CardView(card: card)
-                        .matchedGeometryEffect(id: card.id, in: namespace)
-                        .frame(width: 40)
-                        .rotationEffect(.degrees(Double(index) * 4 - 4))
-                        .offset(x: CGFloat(index) * 2 - 2)
-                }
-                if cards.count > 1 {
-                    Text("\(cards.count)")
-                        .font(.system(size: 8, weight: .bold, design: .rounded))
-                        .padding(3)
-                        .background(Color.black.opacity(0.55), in: Circle())
-                        .foregroundStyle(.white)
-                        .offset(x: 22, y: -24)
-                }
+                RoundedRectangle(cornerRadius: 5)
+                    .strokeBorder(Color.white.opacity(0.18), style: StrokeStyle(lineWidth: 1, dash: [4]))
+                    .frame(width: 44, height: 60)
             }
         }
         .overlay(
             RoundedRectangle(cornerRadius: 6)
-                .strokeBorder(isTakeable ? Theme.accent : .clear, lineWidth: 2)
-                .shadow(color: isTakeable ? Theme.accent.opacity(0.6) : .clear, radius: 6)
-                .frame(width: 46, height: 60))
-        .onTapGesture { if !cards.isEmpty { onTap() } }
+                .strokeBorder(highlighted ? Theme.accent : .clear, lineWidth: 2)
+                .shadow(color: highlighted ? Theme.accent.opacity(0.6) : .clear, radius: 6)
+                .frame(width: 50, height: 66))
     }
 }
 
@@ -202,171 +223,99 @@ struct PileView: View {
     }
 }
 
-/// The human hand: overlapping fan, tap to select, drag to reorder, sort buttons.
-struct HandView: View {
+/// The human hand as an arc. Tap selects, dragging sideways reorders,
+/// sliding a card upward throws it.
+struct ArcHandView: View {
     @State var viewModel: RamiGameViewModel
     let namespace: Namespace.ID
-
-    var body: some View {
-        VStack(spacing: 5) {
-            HStack(spacing: 10) {
-                sortButton("arrow.up.arrow.down", action: viewModel.sortHandByRank, label: "123")
-                sortButton("suit.spade.fill", action: viewModel.sortHandBySuit, label: "♠♥")
-            }
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: -27) {
-                    ForEach(viewModel.humanHand) { card in
-                        let selected = viewModel.selectedCardIDs.contains(card.id)
-                        CardView(card: card)
-                            .matchedGeometryEffect(id: card.id, in: namespace)
-                            .frame(width: 50)
-                            .shadow(color: .black.opacity(0.4), radius: 3, x: -2, y: 2)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 5)
-                                    .strokeBorder(selected ? Theme.accent : .clear, lineWidth: 2))
-                            .offset(y: selected ? -16 : 0)
-                            .onTapGesture { viewModel.toggleSelection(card) }
-                            .draggable(String(card.id)) {
-                                CardView(card: card).frame(width: 52)
-                            }
-                            .dropDestination(for: String.self) { items, _ in
-                                guard let idText = items.first, let sourceID = Int(idText),
-                                      sourceID != card.id else { return false }
-                                var order = viewModel.humanHand.map(\.id)
-                                guard let from = order.firstIndex(of: sourceID),
-                                      let to = order.firstIndex(of: card.id) else { return false }
-                                order.remove(at: from)
-                                order.insert(sourceID, at: to > from ? to : to)
-                                viewModel.handOrder = order
-                                Haptics.tap()
-                                return true
-                            }
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.top, 18)
-                .padding(.bottom, 2)
-            }
-            .frame(height: 96)
-        }
-        .animation(.cardSpring, value: viewModel.humanHand.map(\.id))
-        .animation(.cardSpring, value: viewModel.selectedCardIDs)
-    }
-
-    private func sortButton(_ symbol: String, action: @escaping () -> Void, label: String) -> some View {
-        Button {
-            Haptics.tap()
-            withAnimation(.cardSpring) { action() }
-        } label: {
-            Label(label, systemImage: symbol)
-                .font(.system(size: 10, weight: .semibold))
-                .padding(.horizontal, 9)
-                .padding(.vertical, 4)
-                .background(.ultraThinMaterial, in: Capsule())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(.white.opacity(0.85))
-    }
-}
-
-/// Contextual actions: only legal moves surface.
-struct ActionBarView: View {
-    @State var viewModel: RamiGameViewModel
     let reduceMotion: Bool
 
-    private var state: RamiState { viewModel.state }
+    @State private var draggedID: Int?
+    @State private var dragStartX: CGFloat = 0
+    @State private var dragTranslation: CGSize = .zero
+
+    private let cardWidth: CGFloat = 56
+    private let handHeight: CGFloat = 150
 
     var body: some View {
-        HStack(spacing: 8) {
-            switch viewModel.humanStage {
-            case .awaitingDraw:
-                drawButtons
-            case .awaitingThrow:
-                meldPhaseButtons
-            case nil:
-                EmptyView()
-            }
-        }
-        .frame(minHeight: 40)
-        .padding(.horizontal, 12)
-        .animation(.cardSpring, value: viewModel.selectedCardIDs)
-    }
+        GeometryReader { geometry in
+            let cards = viewModel.humanHand
+            let count = max(cards.count, 1)
+            let width = geometry.size.width
+            let step = count > 1 ? min(34, (width - cardWidth - 24) / CGFloat(count - 1)) : 0
+            let baseY = handHeight - 78
 
-    @ViewBuilder
-    private var drawButtons: some View {
-        actionButton(L10n.purchase, prominent: true) {
-            viewModel.apply(.drawFromPile)
-        }
-        if state.throwTakeUnlocked, viewModel.takeableThrow != nil {
-            if state.players[viewModel.humanSeat].hasLaidDown {
-                actionButton(L10n.takeThrow) {
-                    viewModel.apply(.takeThrow)
+            ZStack {
+                ForEach(Array(cards.enumerated()), id: \.element.id) { index, card in
+                    let centerOffset = CGFloat(index) - CGFloat(count - 1) / 2
+                    let isDragged = draggedID == card.id
+                    let selected = viewModel.selectedCardIDs.contains(card.id)
+                    let x = isDragged
+                        ? dragStartX + dragTranslation.width
+                        : width / 2 + centerOffset * step
+                    let y = baseY
+                        + pow(centerOffset, 2) * 0.7          // arc: edges dip
+                        + (selected ? -18 : 0)
+                        + (isDragged ? dragTranslation.height : 0)
+
+                    CardView(card: card)
+                        .matchedGeometryEffect(id: card.id, in: namespace)
+                        .frame(width: cardWidth)
+                        .shadow(color: .black.opacity(0.4), radius: 3, x: -2, y: 2)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 5)
+                                .strokeBorder(selected ? Theme.accent : .clear, lineWidth: 2))
+                        .rotationEffect(.degrees(isDragged ? 0 : centerOffset * 2.4))
+                        .scaleEffect(isDragged ? 1.1 : 1)
+                        .position(x: x, y: y)
+                        .zIndex(isDragged ? 100 : Double(index))
+                        .onTapGesture { viewModel.toggleSelection(card) }
+                        .gesture(dragGesture(for: card, index: index, step: step, width: width))
                 }
-            } else if let selection = viewModel.selectedMelds, viewModel.selectionIncludesTakeable {
-                actionButton("\(L10n.takeAndLayDown) (\(selection.total))",
-                             prominent: selection.total >= state.requiredLayDown) {
-                    viewModel.apply(.takeThrowAndLayDown(melds: selection.melds))
+            }
+            .animation(.cardSpring, value: cards.map(\.id))
+            .animation(.cardSpring, value: viewModel.selectedCardIDs)
+        }
+        .frame(height: handHeight)
+    }
+
+    private func dragGesture(for card: Card, index: Int, step: CGFloat, width: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 10)
+            .onChanged { value in
+                let cards = viewModel.humanHand
+                if draggedID != card.id {
+                    draggedID = card.id
+                    let count = CGFloat(cards.count - 1)
+                    let centerOffset = CGFloat(index) - count / 2
+                    dragStartX = width / 2 + centerOffset * step
                 }
-            } else {
-                hint("Select melds including the last throw to take it")
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var meldPhaseButtons: some View {
-        let selectedCount = viewModel.selectedCardIDs.count
-        if selectedCount == 0 {
-            hint("Select cards to lay down, or one card to throw")
-        } else if selectedCount == 1,
-                  let card = state.players[viewModel.humanSeat].hand.first(where: {
-                      viewModel.selectedCardIDs.contains($0.id)
-                  }) {
-            actionButton(L10n.throwCard, prominent: true) {
-                viewModel.apply(.throwCard(card))
-            }
-            if !state.tableMelds.isEmpty, state.players[viewModel.humanSeat].hasLaidDown {
-                hint("or tap a meld to add this card")
-            }
-        }
-        if selectedCount >= Meld.minSize {
-            if let selection = viewModel.selectedMelds, !viewModel.selectionIncludesTakeable {
-                let needsThreshold = !state.players[viewModel.humanSeat].hasLaidDown
-                let meets = !needsThreshold || selection.total >= state.requiredLayDown
-                actionButton("\(L10n.layDown) (\(selection.total))", prominent: meets) {
-                    viewModel.apply(.layDown(melds: selection.melds))
+                dragTranslation = value.translation
+                // Live reorder while sliding sideways.
+                guard step > 0, abs(value.translation.height) < 60 else { return }
+                guard let current = cards.firstIndex(where: { $0.id == card.id }) else { return }
+                let target = max(0, min(cards.count - 1,
+                    Int(round((dragStartX + value.translation.width - width / 2) / step
+                        + CGFloat(cards.count - 1) / 2))))
+                if target != current {
+                    var order = cards.map(\.id)
+                    order.remove(at: current)
+                    order.insert(card.id, at: target)
+                    withAnimation(.cardSpring) { viewModel.handOrder = order }
                 }
-            } else if !viewModel.selectionIncludesTakeable {
-                hint("Selection is not valid melds")
             }
-        }
-    }
-
-    private func actionButton(
-        _ title: String, prominent: Bool = false, action: @escaping () -> Void
-    ) -> some View {
-        Button {
-            Haptics.action()
-            withAnimation(reduceMotion ? .default : .cardSpring) { action() }
-        } label: {
-            Text(title)
-                .font(.subheadline.weight(.bold))
-                .padding(.horizontal, 15)
-                .padding(.vertical, 9)
-                .background(
-                    prominent ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(.ultraThinMaterial),
-                    in: Capsule())
-                .foregroundStyle(prominent ? .black : Theme.accent)
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func hint(_ text: String) -> some View {
-        Text(text)
-            .font(.caption2)
-            .foregroundStyle(.white.opacity(0.65))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(Color.black.opacity(0.25), in: Capsule())
+            .onEnded { value in
+                let translation = value.translation
+                withAnimation(.cardSpring) {
+                    draggedID = nil
+                    dragTranslation = .zero
+                }
+                // Slide up = throw.
+                if translation.height < -80, abs(translation.width) < 120, viewModel.canThrow {
+                    Haptics.action()
+                    withAnimation(reduceMotion ? .default : .cardSpring) {
+                        viewModel.apply(.throwCard(card))
+                    }
+                }
+            }
     }
 }

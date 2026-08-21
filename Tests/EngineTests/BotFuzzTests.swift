@@ -80,11 +80,14 @@ struct BotFuzzTests {
                 for i in state.players.indices where !state.players[i].isEliminated {
                     let count = state.players[i].hand.count
                     if i == turnSeat {
-                        #expect(count == 14, "on-turn player should hold 14 before drawing")
+                        // Before drawing: never empty (the round would have
+                        // ended) and never above 14 (laydowns only shrink it).
+                        #expect(count >= 1 && count <= 14)
                     } else {
-                        // Off-turn players hold 14, except a dealer who has not
-                        // yet played their first turn of the round (15).
-                        #expect(count == 14 || (count == 15 && i == state.dealerSeat))
+                        // Off-turn cap is 14 — except a dealer who has not yet
+                        // played their first turn of the round (15).
+                        #expect(count <= 14 || (count == 15 && i == state.dealerSeat))
+                        #expect(count >= 1)
                     }
                 }
             }
