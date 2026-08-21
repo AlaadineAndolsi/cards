@@ -4,7 +4,6 @@ struct RummyHomeView: View {
     let settings: SettingsStore
     let store: GameStore
     @State private var savedGame: RummyState?
-    @State private var showLevelPicker = false
     @State private var startedViewModel: RummyGameViewModel?
 
     var body: some View {
@@ -20,7 +19,7 @@ struct RummyHomeView: View {
                     .foregroundStyle(.white)
                 VStack(spacing: 14) {
                     Button {
-                        showLevelPicker = true
+                        start()
                     } label: {
                         Label(L10n.newGame, systemImage: "plus.circle.fill")
                             .font(.headline)
@@ -74,20 +73,14 @@ struct RummyHomeView: View {
         }
         .tint(Theme.accent)
         .task { savedGame = await store.loadActiveGame() }
-        .confirmationDialog(L10n.botLevel, isPresented: $showLevelPicker, titleVisibility: .visible) {
-            Button(L10n.beginner) { start(.beginner) }
-            Button(L10n.intermediate) { start(.intermediate) }
-            Button(L10n.expert) { start(.expert) }
-            Button(L10n.cancel, role: .cancel) {}
-        }
         .navigationDestination(item: $startedViewModel) { viewModel in
             GameTableView(viewModel: viewModel)
         }
     }
 
-    private func start(_ level: BotLevel) {
+    private func start() {
         Haptics.action()
-        startedViewModel = RummyGameViewModel.newGame(settings: settings, botLevel: level, store: store)
+        startedViewModel = RummyGameViewModel.newGame(settings: settings, store: store)
     }
 }
 

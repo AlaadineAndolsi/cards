@@ -26,24 +26,17 @@ struct DealControlsView: View {
                             .foregroundStyle(.black)
                     }
                     .symbolEffect(.bounce, value: shufflePulse)
-                    Text(L10n.dealPattern)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    HStack(spacing: 6) {
+                    VStack(spacing: 2) {
+                        Text(L10n.dealPattern)
+                            .font(.caption.weight(.semibold))
+                        Text("cards per pass — +N goes to the dealer at the end")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())],
+                              spacing: 8) {
                         ForEach(DealPattern.allCases, id: \.self) { pattern in
-                            Button {
-                                onAction(.deal(pattern))
-                            } label: {
-                                Text(pattern.label)
-                                    .font(.system(size: 10, weight: .bold, design: .rounded))
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.7)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 9)
-                                    .frame(maxWidth: .infinity)
-                                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
-                                    .foregroundStyle(Theme.accent)
-                            }
+                            patternButton(pattern)
                         }
                     }
                 }
@@ -52,6 +45,30 @@ struct DealControlsView: View {
             .padding(.bottom, 180)
         }
         .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+
+    /// One pattern as a roomy card: the rhythm digits big, the dealer bonus
+    /// spelled out underneath.
+    private func patternButton(_ pattern: DealPattern) -> some View {
+        let parts = pattern.label.split(separator: " ")
+        let digits = String(parts.first ?? "")
+        let bonus = parts.count > 1 ? String(parts[1]) : nil
+        return Button {
+            onAction(.deal(pattern))
+        } label: {
+            VStack(spacing: 3) {
+                Text(digits)
+                    .font(.system(size: 22, weight: .heavy, design: .rounded))
+                    .foregroundStyle(Theme.accent)
+                Text(bonus.map { "\($0) dealer" } ?? "even passes")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
     }
 }
 

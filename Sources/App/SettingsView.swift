@@ -8,6 +8,7 @@ struct SettingsView: View {
             Theme.felt
             ScrollView {
                 VStack(spacing: 18) {
+                    botLevelCard
                     ruleCard(
                         title: L10n.minimumLayDown,
                         value: $settings.minimumLayDown,
@@ -32,6 +33,21 @@ struct SettingsView: View {
         .navigationTitle(L10n.settings)
         .navigationBarTitleDisplayMode(.inline)
         .tint(Theme.accent)
+    }
+
+    private var botLevelCard: some View {
+        Theme.panel {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(L10n.botLevel)
+                    .font(.headline)
+                Picker(L10n.botLevel, selection: $settings.botLevel) {
+                    Text(L10n.beginner).tag(BotLevel.beginner)
+                    Text(L10n.intermediate).tag(BotLevel.intermediate)
+                    Text(L10n.expert).tag(BotLevel.expert)
+                }
+                .pickerStyle(.segmented)
+            }
+        }
     }
 
     private func ruleCard(

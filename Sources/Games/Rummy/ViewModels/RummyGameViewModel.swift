@@ -84,11 +84,11 @@ final class RummyGameViewModel {
         #endif
     }
 
-    static func newGame(settings: SettingsStore, botLevel: BotLevel, store: GameStore) -> RummyGameViewModel {
+    static func newGame(settings: SettingsStore, store: GameStore) -> RummyGameViewModel {
         var rng = SystemRandomNumberGenerator()
         let botNames = Array(NamePool.tunisianMen.shuffled(using: &rng).prefix(3))
         let state = RummyEngine.newGame(
-            config: settings.config(botLevel: botLevel),
+            config: settings.config(),
             names: [L10n.you] + botNames,
             dealerSeat: Int.random(in: 0..<4, using: &rng),
             rng: &rng)
