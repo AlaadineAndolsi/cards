@@ -621,13 +621,17 @@ final class RummyGameViewModel {
         let appendableOrdered = appendable.sorted {
             (sortRankKey($1), suitIndex($0), $0.id) < (sortRankKey($0), suitIndex($1), $1.id)
         }
-        return jokers + strong + numberClusters(weak) + appendableOrdered
+        return jokers + strong
+            + numberClusters(weak, leadingSuit: strong.last?.suit)
+            + appendableOrdered
     }
 
     /// The number side of the smart sort: same-and-adjacent ranks cluster
-    /// together (4-4-3-2-2), bigger clusters before smaller ones, descending
-    /// inside each — so an isolated pair like 9-9 lands at the far right.
-    private func numberClusters(_ cards: [Card]) -> [Card] {
+    /// together (4-4-3-2-2). Clusters with more paired cards come first (set
+    /// potential), ties by higher rank — so 7-7 precedes a loose 4-3-3, and
+    /// lone singles land at the far right. Suits chain across the boundaries
+    /// (…9♣ | 7♣ 7♠…) so same-suit near-runs stay adjacent.
+    private func numberClusters(_ cards: [Card], leadingSuit: Suit? = nil) -> [Card] {
         let groups = Dictionary(grouping: cards) { sortRankKey($0) }
         var clusters: [[Int]] = []
         var current: [Int] = []
@@ -639,19 +643,43 @@ final class RummyGameViewModel {
             current.append(key)
         }
         if !current.isEmpty { clusters.append(current) }
-        let ordered = clusters.sorted { a, b in
-            let sizeA = a.reduce(0) { $0 + (groups[$1]?.count ?? 0) }
-            let sizeB = b.reduce(0) { $0 + (groups[$1]?.count ?? 0) }
-            if sizeA != sizeB { return sizeA > sizeB }
-            return a.first! > b.first!
-        }
-        return ordered.flatMap { cluster in
-            cluster.flatMap { key in
-                (groups[key] ?? []).sorted {
-                    (suitIndex($0), $0.id) < (suitIndex($1), $1.id)
-                }
+        func pairedCards(_ cluster: [Int]) -> Int {
+            cluster.reduce(0) { total, key in
+                let count = groups[key]?.count ?? 0
+                return total + (count >= 2 ? count : 0)
             }
         }
+        let ordered = clusters.sorted { a, b in
+            let pairsA = pairedCards(a)
+            let pairsB = pairedCards(b)
+            if pairsA != pairsB { return pairsA > pairsB }
+            return a.first! > b.first!
+        }
+        // Flatten with suit chaining: each rank group enters on the suit the
+        // previous card handed over and exits on a suit the next group holds.
+        let flatKeys = ordered.flatMap { $0 }
+        var result: [Card] = []
+        var lead = leadingSuit
+        for (index, key) in flatKeys.enumerated() {
+            var group = (groups[key] ?? []).sorted {
+                (suitIndex($0), $0.id) < (suitIndex($1), $1.id)
+            }
+            if let lead, let entry = group.firstIndex(where: { $0.suit == lead }) {
+                group.insert(group.remove(at: entry), at: 0)
+            }
+            let nextSuits: Set<Suit> = index + 1 < flatKeys.count
+                ? Set((groups[flatKeys[index + 1]] ?? []).compactMap(\.suit))
+                : []
+            let exits = group.indices.filter {
+                group[$0].suit.map(nextSuits.contains) ?? false
+            }
+            if group.count > 1, let pick = exits.last(where: { $0 != 0 }) {
+                group.append(group.remove(at: pick))
+            }
+            lead = group.last?.suit
+            result.append(contentsOf: group)
+        }
+        return result
     }
 
     /// Type-first sort: jokers leftmost, suits in fixed order, ranks
