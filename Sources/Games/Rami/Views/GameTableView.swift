@@ -107,24 +107,24 @@ struct GameTableView: View {
 
     private func avatarAnchor(_ offset: Int, in size: CGSize) -> CGPoint {
         switch offset {
-        case 1: CGPoint(x: size.width - 36, y: size.height * 0.33)
-        case 2: CGPoint(x: size.width / 2, y: 162)
-        case 3: CGPoint(x: 36, y: size.height * 0.33)
-        default: CGPoint(x: size.width / 2, y: size.height * 0.60)
+        case 1: CGPoint(x: size.width - 36, y: size.height * 0.29)
+        case 2: CGPoint(x: size.width / 2, y: 128)
+        case 3: CGPoint(x: 36, y: size.height * 0.29)
+        default: CGPoint(x: size.width / 2, y: size.height * 0.55)
         }
     }
 
     /// Lays sit directly under their owner's avatar.
     private func meldsAnchor(_ offset: Int, in size: CGSize) -> CGPoint {
         switch offset {
-        case 1: CGPoint(x: size.width - 44, y: size.height * 0.33 + 82)
-        case 2: CGPoint(x: size.width / 2, y: 218)
-        default: CGPoint(x: 44, y: size.height * 0.33 + 82)
+        case 1: CGPoint(x: size.width - 44, y: size.height * 0.29 + 82)
+        case 2: CGPoint(x: size.width / 2, y: 184)
+        default: CGPoint(x: 44, y: size.height * 0.29 + 82)
         }
     }
 
     private func pileAnchor(in size: CGSize) -> CGPoint {
-        CGPoint(x: 46, y: size.height * 0.62)
+        CGPoint(x: 46, y: size.height * 0.57)
     }
 
     /// The exact center of the circle of all four players.
@@ -210,7 +210,7 @@ struct GameTableView: View {
             .position(pileAnchor(in: size))
             // Sort / cancel actions under the right player.
             handActions
-                .position(x: size.width - 46, y: size.height * 0.62)
+                .position(x: size.width - 46, y: size.height * 0.57)
             // Your lays, one serie per line, centered between pile and actions.
             SideMeldsView(
                 melds: state.tableMelds.filter { $0.ownerSeat == viewModel.humanSeat },
@@ -220,7 +220,7 @@ struct GameTableView: View {
                         handleMeldTap(tableMeld)
                     }
                 })
-            .position(x: size.width / 2, y: size.height * 0.62)
+            .position(x: size.width / 2, y: size.height * 0.57)
             ForEach(dealFlights) { flight in
                 DealFlightCard(
                     delay: flight.delay,
