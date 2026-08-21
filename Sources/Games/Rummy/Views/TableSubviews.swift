@@ -462,8 +462,10 @@ struct ArcHandView: View {
                     }
                     return
                 }
-                // The drag ended as a plain reorder: now the sort turns off.
+                // Dropped onto a locked series it fits? The card joins it.
                 if reordered {
+                    if viewModel.absorbIntoLockedSeriesIfFits(card) { return }
+                    // A plain reorder: now the sort turns off.
                     viewModel.commitManualReorder()
                 }
             }

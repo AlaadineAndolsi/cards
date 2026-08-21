@@ -253,6 +253,37 @@ final class RummyGameViewModel {
         apply(.layDown(melds: [lockedMelds[index]]))
     }
 
+    /// Dropping a card on (or right beside) a locked series absorbs it when
+    /// it fits — the series grows and the card locks with the group.
+    func absorbIntoLockedSeriesIfFits(_ card: Card) -> Bool {
+        guard !lockedCardIDs.contains(card.id) else { return false }
+        guard let position = handOrder.firstIndex(of: card.id) else { return false }
+        for index in lockedSeries.indices {
+            guard let firstID = lockedSeries[index].first,
+                  let lastID = lockedSeries[index].last,
+                  let start = handOrder.firstIndex(of: firstID),
+                  let end = handOrder.firstIndex(of: lastID),
+                  position >= start - 1, position <= end + 1,
+                  lockedMelds[index].entries.count < Meld.maxSize else { continue }
+            let entry: MeldEntry?
+            if card.isJoker {
+                entry = lockedMelds[index].jokerEntryToExtend(joker: card)
+            } else if let rank = card.rank, let suit = card.suit {
+                entry = MeldEntry(card: card, asRank: rank, asSuit: suit)
+            } else {
+                entry = nil
+            }
+            guard let entry, let grown = lockedMelds[index].inserting(entry) else { continue }
+            Haptics.action()
+            lockedMelds[index] = Meld(entries: canonicalEntries(grown))
+            lockedSeries[index] = grown.displayEntries.map(\.card.id)
+            selectedCardIDs.remove(card.id)
+            rebuildHandOrder()
+            return true
+        }
+        return false
+    }
+
     private func rebuildHandOrder() {
         let locked = lockedSeries.flatMap { $0 }
         handOrder = locked + humanHand.map(\.id).filter { !locked.contains($0) }
