@@ -16,7 +16,15 @@ enum RummyEngine {
         var pile = Card.fullDeck()
         // Base fairness shuffle; the dealer's explicit shuffles come on top.
         pile.fisherYatesShuffle(using: &rng)
-        return RummyState(
+        // Three distinct temperaments dealt across the three bot seats,
+        // stable for the whole game.
+        var archetypes = Array(BotArchetype.allCases)
+        archetypes.fisherYatesShuffle(using: &rng)
+        var pending = archetypes
+        let minds: [BotMind] = names.indices.map { seat in
+            seat == humanSeat ? .neutral : BotMind(archetype: pending.removeFirst(), frustration: 0.3)
+        }
+        var state = RummyState(
             config: config,
             players: names.enumerated().map { PlayerState(name: $1, isHuman: $0 == humanSeat) },
             dealerSeat: dealerSeat,
@@ -25,6 +33,8 @@ enum RummyEngine {
             startedAt: Date(),
             matchID: UUID()
         )
+        state.botMinds = minds
+        return state
     }
 
     static func apply(

@@ -92,6 +92,9 @@ struct RummyState: Codable, Hashable, Sendable {
     var eliminationOrder: [Int] = []
     /// Pattern used for the most recent deal (drives the deal animation).
     var lastDealPattern: DealPattern?
+    /// One mind per seat (human's is an inert placeholder). Optional so saves
+    /// from before the psychology layer keep decoding; engine seeds it lazily.
+    var botMinds: [BotMind]? = nil
     var startedAt: Date
     var matchID: UUID
 

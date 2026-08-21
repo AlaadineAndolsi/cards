@@ -41,6 +41,20 @@ enum Scoring {
             s.players[seat].totalScore += deltas[seat]
         }
 
+        // Psychology settles with the points: bots tilt on bad rounds and calm
+        // on good ones. Pure — the outcome above is untouched.
+        if var minds = s.botMinds {
+            for seat in s.players.indices
+            where !s.players[seat].isHuman && !s.players[seat].isEliminated && minds.indices.contains(seat) {
+                minds[seat].absorbRound(
+                    myDelta: deltas[seat],
+                    iClosed: seat == closerSeat,
+                    someoneElseClosed: closerSeat != nil && closerSeat != seat,
+                    level: s.config.botLevel)
+            }
+            s.botMinds = minds
+        }
+
         // Among simultaneous deaths, the higher total dies "first" (worse place).
         let newlyDead = s.players.indices
             .filter { !s.players[$0].isEliminated && s.players[$0].totalScore >= s.config.eliminationScore }

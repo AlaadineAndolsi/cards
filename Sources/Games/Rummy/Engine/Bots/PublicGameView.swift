@@ -30,6 +30,8 @@ struct PublicGameView: Sendable {
     let hasLaidDown: Bool
     /// Own unconfirmed lay-down total this turn (threshold checks at the throw).
     let pendingLayDownValue: Int?
+    /// Own temperament + tilt (falls back to a neutral mind for old saves).
+    let mind: BotMind
 
     init(state: RummyState, seat: Int) {
         self.seat = seat
@@ -52,6 +54,11 @@ struct PublicGameView: Sendable {
         self.aliveCount = state.aliveCount
         self.hasLaidDown = state.players[seat].hasLaidDown
         self.pendingLayDownValue = state.players[seat].pendingLayDownValue
+        if let minds = state.botMinds, minds.indices.contains(seat) {
+            self.mind = minds[seat]
+        } else {
+            self.mind = .neutral
+        }
     }
 
     var nextAliveSeat: Int {

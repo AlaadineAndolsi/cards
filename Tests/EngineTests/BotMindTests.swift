@@ -133,4 +133,80 @@ struct BotMindTests {
         #expect(BotMind(archetype: .blocker, frustration: 0.3).mood == .neutral)
         #expect(BotMind(archetype: .blocker, frustration: 0.05).mood == .confident)
     }
+
+    // MARK: - Minds in state
+
+    @Test func newGameDealsThreeDistinctPersonalitiesToBots() throws {
+        var rng = SeededRNG(seed: 99)
+        let state = RummyEngine.newGame(
+            config: .default, names: ["A", "B", "C", "D"], dealerSeat: 0, rng: &rng)
+        let minds = try #require(state.botMinds)
+        #expect(minds.count == 4)
+        let botArchetypes = state.players.indices
+            .filter { !state.players[$0].isHuman }
+            .map { minds[$0].archetype }
+        #expect(Set(botArchetypes).count == 3, "each bot gets its own archetype")
+    }
+
+    @Test func personalityAssignmentIsDeterministicPerSeed() {
+        var rngA = SeededRNG(seed: 7)
+        var rngB = SeededRNG(seed: 7)
+        let a = RummyEngine.newGame(config: .default, names: ["A", "B", "C", "D"], dealerSeat: 1, rng: &rngA)
+        let b = RummyEngine.newGame(config: .default, names: ["A", "B", "C", "D"], dealerSeat: 1, rng: &rngB)
+        #expect(a.botMinds == b.botMinds)
+    }
+
+    @Test func savesWithoutMindsStillDecode() throws {
+        var rng = SeededRNG(seed: 3)
+        let state = RummyEngine.newGame(
+            config: .default, names: ["A", "B", "C", "D"], dealerSeat: 0, rng: &rng)
+        let encoded = try JSONEncoder().encode(state)
+        let raw = try JSONSerialization.jsonObject(with: encoded)
+        var object = try #require(raw as? [String: Any])
+        object.removeValue(forKey: "botMinds")
+        let stripped = try JSONSerialization.data(withJSONObject: object)
+        let decoded = try JSONDecoder().decode(RummyState.self, from: stripped)
+        #expect(decoded.botMinds == nil)
+        #expect(decoded.players.count == 4)
+    }
+
+    @Test func settlementMovesBotMoods() throws {
+        let jokerless = Card.fullDeck().filter { !$0.isJoker }
+        func cards(_ n: Int, from pool: inout [Card]) -> [Card] {
+            defer { pool.removeFirst(n) }
+            return Array(pool.prefix(n))
+        }
+        var pool = jokerless
+        let hands = [cards(3, from: &pool), cards(1, from: &pool),
+                     cards(5, from: &pool), cards(5, from: &pool)]
+        var s = StateBuilder.turn(
+            seat: 1, stage: .awaitingThrow(drew: .pile, pendingJoker: nil),
+            hands: hands, laidDown: [false, true, true, false], turnsCompleted: 30)
+        s.botMinds = [
+            .neutral,
+            BotMind(archetype: .gloryHunter, frustration: 0.5),
+            BotMind(archetype: .accountant, frustration: 0.5),
+            BotMind(archetype: .blocker, frustration: 0.5),
+        ]
+        Scoring.settleRound(&s, closerSeat: 1)
+        let minds = try #require(s.botMinds)
+        #expect(minds[1].frustration < 0.5, "the closer relaxes")
+        #expect(minds[3].frustration > 0.7, "eating the flat 100 tilts hard")
+    }
+
+    @Test func failedTakeTiltsThePenalizedBot() throws {
+        let jokerless = Card.fullDeck().filter { !$0.isJoker }
+        var s = StateBuilder.turn(
+            seat: 2, stage: .awaitingThrow(drew: .takenThrow, pendingJoker: nil),
+            hands: [Array(jokerless[0..<5]), Array(jokerless[5..<10]),
+                    Array(jokerless[10..<15]), Array(jokerless[15..<20])])
+        s.botMinds = [.neutral,
+                      BotMind(archetype: .accountant, frustration: 0.2),
+                      BotMind(archetype: .blocker, frustration: 0.2),
+                      BotMind(archetype: .gloryHunter, frustration: 0.2)]
+        Scoring.settleFailedTake(&s, penalized: 2)
+        let minds = try #require(s.botMinds)
+        #expect(minds[2].frustration > 0.4)
+        #expect(minds[1].frustration <= 0.2, "bystanders don't tilt on a failed take")
+    }
 }
