@@ -13,7 +13,7 @@ struct MatchRecord: Codable, Identifiable, Hashable, Sendable {
     let finalScores: [Int]
     let placements: [FinalPlacement]
 
-    init(state: RamiState, placements: [FinalPlacement], endedAt: Date) {
+    init(state: RummyState, placements: [FinalPlacement], endedAt: Date) {
         self.id = state.matchID
         self.startedAt = state.startedAt
         self.endedAt = endedAt

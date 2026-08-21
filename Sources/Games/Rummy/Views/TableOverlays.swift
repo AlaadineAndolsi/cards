@@ -4,7 +4,7 @@ import SwiftUI
 struct DealControlsView: View {
     let shuffles: Int
     @Binding var shufflePulse: Int
-    let onAction: (RamiAction) -> Void
+    let onAction: (RummyAction) -> Void
 
     var body: some View {
         VStack {
@@ -117,7 +117,7 @@ struct VotePanelView: View {
 
 /// Round-end overlay: closer, deltas, running totals, eliminations.
 struct RoundEndView: View {
-    let state: RamiState
+    let state: RummyState
     let result: RoundResult
     let onNext: () -> Void
     @State private var revealed = false
@@ -186,7 +186,7 @@ struct RoundEndView: View {
 
 /// Final ranking when the second player dies.
 struct GameEndView: View {
-    let state: RamiState
+    let state: RummyState
     let placements: [FinalPlacement]
     let onExit: () -> Void
 
@@ -243,7 +243,7 @@ struct GameEndView: View {
 
 /// Live score table for the current match.
 struct ScoreSheetView: View {
-    let state: RamiState
+    let state: RummyState
 
     var body: some View {
         NavigationStack {
@@ -301,6 +301,7 @@ struct ScoreSheetView: View {
                     Text("\(L10n.eliminationScore): \(state.config.eliminationScore)")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
+                    gestureGuide
                 }
                 .padding(18)
             }
@@ -309,89 +310,36 @@ struct ScoreSheetView: View {
             .presentationDetents([.medium, .large])
         }
     }
-}
 
-/// Zoomed meld for reading, appending, and joker swapping.
-struct MeldZoomSheet: View {
-    @State var viewModel: RamiGameViewModel
-    let meldID: UUID
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        let state = viewModel.state
-        VStack(spacing: 16) {
-            if let tableMeld = state.tableMelds.first(where: { $0.id == meldID }) {
-                Text("\(state.players[tableMeld.ownerSeat].name)'s meld")
-                    .font(.headline)
-                HStack(spacing: 6) {
-                    ForEach(tableMeld.meld.entries, id: \.card.id) { entry in
-                        VStack(spacing: 3) {
-                            CardView(card: entry.card)
-                                .frame(width: 56)
-                            if entry.card.isJoker {
-                                Text("as \(entry.asRank.label)\(entry.asSuit.symbol)")
-                                    .font(.system(size: 9, weight: .semibold))
-                                    .foregroundStyle(Theme.accent)
-                            }
-                        }
-                    }
-                }
-                if viewModel.isHumanTurn, case .awaitingThrow = viewModel.humanStage,
-                   state.players[viewModel.humanSeat].hasLaidDown {
-                    meldActions(tableMeld: tableMeld, state: state)
-                }
-            } else {
-                Text("Meld updated").foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 0)
+    /// Everything on the table is gesture-driven; the reference lives here.
+    private var gestureGuide: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text("Gestures")
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(Theme.accent)
+            gestureRow("hand.tap", "Tap a card to select it — tap a locked card to unlock its series")
+            gestureRow("lock.fill", "Long-press a selected group to lock it as series")
+            gestureRow("arrow.left.arrow.right", "Drag a card sideways to reorder the fan")
+            gestureRow("arrow.up", "Slide a card up to throw it")
+            gestureRow("arrow.up.square.fill", "Slide a locked series up to lay it — table touch: a laid series never comes back, and the count is checked when you throw")
+            gestureRow("hand.point.down.fill", "Slide the thrown card down to take it — tap it to see everyone's last throw")
+            gestureRow("rectangle.stack.fill", "Tap the pile to purchase a card")
+            gestureRow("plus.rectangle.on.rectangle", "Hold a dragged card up for a moment: the melds enlarge, drop the card on one to add it")
         }
-        .padding(18)
-        .presentationDragIndicator(.visible)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
     }
 
-    @ViewBuilder
-    private func meldActions(tableMeld: TableMeld, state: RamiState) -> some View {
-        let hand = state.players[viewModel.humanSeat].hand
-        let selected = hand.first { viewModel.selectedCardIDs.contains($0.id) }
-        // Append the single selected card when it fits.
-        if viewModel.selectedCardIDs.count == 1, let card = selected {
-            let entry: MeldEntry? = card.isJoker
-                ? tableMeld.meld.jokerEntryToExtend(joker: card)
-                : card.rank.flatMap { rank in
-                    card.suit.map { MeldEntry(card: card, asRank: rank, asSuit: $0) }
-                }
-            if let entry, tableMeld.meld.inserting(entry) != nil {
-                Button {
-                    Haptics.action()
-                    viewModel.apply(.appendCard(entry, meldID: tableMeld.id))
-                    dismiss()
-                } label: {
-                    Label(L10n.addToMeld, systemImage: "plus.circle.fill")
-                        .font(.subheadline.weight(.bold))
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 9)
-                        .background(Theme.accent, in: Capsule())
-                        .foregroundStyle(.black)
-                }
-            }
-        }
-        // Swap a joker for its real card from hand.
-        ForEach(tableMeld.meld.entries.filter(\.card.isJoker), id: \.card.id) { entry in
-            if let real = hand.first(where: { $0.rank == entry.asRank && $0.suit == entry.asSuit }) {
-                Button {
-                    Haptics.action()
-                    viewModel.apply(.swapJoker(meldID: tableMeld.id, realCard: real))
-                    dismiss()
-                } label: {
-                    Label("\(L10n.swapJoker) — use \(entry.asRank.label)\(entry.asSuit.symbol)",
-                          systemImage: "arrow.triangle.2.circlepath")
-                        .font(.subheadline.weight(.bold))
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 9)
-                        .background(.ultraThinMaterial, in: Capsule())
-                        .foregroundStyle(Theme.accent)
-                }
-            }
+    private func gestureRow(_ symbol: String, _ text: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: symbol)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Theme.accent)
+                .frame(width: 16)
+            Text(text)
+                .font(.caption)
+                .foregroundStyle(.primary)
         }
     }
 }

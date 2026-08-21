@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Game hub: Rami playable, Chkobba teased. Settings top-right, history
-/// top-left — mirrored on the Rami home for consistency.
+/// Game hub: Rummy playable, Chkobba teased. Settings top-right, history
+/// top-left — mirrored on the Rummy home for consistency.
 struct HubView: View {
     @State private var settings = SettingsStore()
     @State private var store = GameStore()
@@ -20,10 +20,10 @@ struct HubView: View {
                     fannedCards
                         .frame(height: 110)
                     NavigationLink {
-                        RamiHomeView(settings: settings, store: store)
+                        RummyHomeView(settings: settings, store: store)
                     } label: {
                         GameCard(
-                            title: L10n.rami,
+                            title: L10n.rummy,
                             subtitle: "108 cards · 1 vs 3 bots",
                             symbol: "suit.spade.fill",
                             enabled: true)

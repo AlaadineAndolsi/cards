@@ -9,11 +9,11 @@ private func distinctCards(_ count: Int, excluding: Set<Int> = []) -> [Card] {
 struct DealFlowTests {
     @Test func shuffleAndDealProducesVotePhaseWithCorrectHands() throws {
         var rng = SeededRNG(seed: 1)
-        var s = RamiEngine.newGame(config: .default, names: ["A", "B", "C", "D"], dealerSeat: 2, rng: &rng)
-        s = try RamiEngine.apply(.shuffle, by: 2, to: s, rng: &rng)
-        s = try RamiEngine.apply(.shuffle, by: 2, to: s, rng: &rng)
+        var s = RummyEngine.newGame(config: .default, names: ["A", "B", "C", "D"], dealerSeat: 2, rng: &rng)
+        s = try RummyEngine.apply(.shuffle, by: 2, to: s, rng: &rng)
+        s = try RummyEngine.apply(.shuffle, by: 2, to: s, rng: &rng)
         #expect(s.phase == .dealing(shuffles: 2))
-        s = try RamiEngine.apply(.deal(.p2222), by: 2, to: s, rng: &rng)
+        s = try RummyEngine.apply(.deal(.p2222), by: 2, to: s, rng: &rng)
         #expect(s.players[2].hand.count == 15)
         for seat in [0, 1, 3] { #expect(s.players[seat].hand.count == 14) }
         #expect(s.drawPile.count == 108 - 57)
@@ -22,17 +22,17 @@ struct DealFlowTests {
 
     @Test func onlyDealerMayShuffleOrDeal() throws {
         var rng = SeededRNG(seed: 1)
-        let s = RamiEngine.newGame(config: .default, names: ["A", "B", "C", "D"], dealerSeat: 2, rng: &rng)
-        #expect(throws: RamiError.notYourTurn) { try StateBuilder.apply(.shuffle, by: 0, to: s) }
-        #expect(throws: RamiError.notYourTurn) { try StateBuilder.apply(.deal(.p1111), by: 1, to: s) }
+        let s = RummyEngine.newGame(config: .default, names: ["A", "B", "C", "D"], dealerSeat: 2, rng: &rng)
+        #expect(throws: RummyError.notYourTurn) { try StateBuilder.apply(.shuffle, by: 0, to: s) }
+        #expect(throws: RummyError.notYourTurn) { try StateBuilder.apply(.deal(.p1111), by: 1, to: s) }
     }
 }
 
 struct VoteTests {
-    private func dealtState() throws -> RamiState {
+    private func dealtState() throws -> RummyState {
         var rng = SeededRNG(seed: 5)
-        var s = RamiEngine.newGame(config: .default, names: ["A", "B", "C", "D"], dealerSeat: 2, rng: &rng)
-        s = try RamiEngine.apply(.deal(.p1111), by: 2, to: s, rng: &rng)
+        var s = RummyEngine.newGame(config: .default, names: ["A", "B", "C", "D"], dealerSeat: 2, rng: &rng)
+        s = try RummyEngine.apply(.deal(.p1111), by: 2, to: s, rng: &rng)
         return s
     }
 
@@ -65,7 +65,7 @@ struct VoteTests {
 
     @Test func voteRespectsTurnOrder() throws {
         let s = try dealtState()
-        #expect(throws: RamiError.notYourTurn) { try StateBuilder.apply(.declareIntent(play: true), by: 1, to: s) }
+        #expect(throws: RummyError.notYourTurn) { try StateBuilder.apply(.declareIntent(play: true), by: 1, to: s) }
     }
 }
 
@@ -83,17 +83,17 @@ struct ForcedPassTests {
     @Test func qualificationRules() {
         let fourDoubles = pair(.two, .hearts) + pair(.five, .clubs)
             + pair(.nine, .spades) + pair(.king, .diamonds)
-        #expect(RamiEngine.canForcePass(hand: fourDoubles + filler(6, excluding: fourDoubles)))
+        #expect(RummyEngine.canForcePass(hand: fourDoubles + filler(6, excluding: fourDoubles)))
 
         let threeDoubles = pair(.two, .hearts) + pair(.five, .clubs) + pair(.nine, .spades)
-        #expect(!RamiEngine.canForcePass(hand: threeDoubles + filler(8, excluding: threeDoubles)))
-        #expect(RamiEngine.canForcePass(
+        #expect(!RummyEngine.canForcePass(hand: threeDoubles + filler(8, excluding: threeDoubles)))
+        #expect(RummyEngine.canForcePass(
             hand: threeDoubles + [TestCards.joker()] + filler(7, excluding: threeDoubles)))
 
         let twoDoubles = pair(.two, .hearts) + pair(.five, .clubs)
-        #expect(!RamiEngine.canForcePass(
+        #expect(!RummyEngine.canForcePass(
             hand: twoDoubles + [TestCards.joker()] + filler(9, excluding: twoDoubles)))
-        #expect(RamiEngine.canForcePass(
+        #expect(RummyEngine.canForcePass(
             hand: twoDoubles + [TestCards.joker(0), TestCards.joker(1)]
                 + filler(8, excluding: twoDoubles)))
 
@@ -104,7 +104,7 @@ struct ForcedPassTests {
             TestCards.card(.nine, .spades), TestCards.card(.nine, .hearts),
             TestCards.card(.king, .diamonds), TestCards.card(.king, .clubs),
         ]
-        #expect(!RamiEngine.canForcePass(hand: fakeDoubles + filler(6, excluding: fakeDoubles)))
+        #expect(!RummyEngine.canForcePass(hand: fakeDoubles + filler(6, excluding: fakeDoubles)))
     }
 
     @Test func forcePassAbandonsTheRoundImmediately() throws {
@@ -125,7 +125,7 @@ struct ForcedPassTests {
         var s = StateBuilder.base()
         for seat in 0..<4 { s.players[seat].hand = filler(14, excluding: []) }
         s.phase = .vote(proposerSeat: 0, currentSeat: 0)
-        #expect(throws: RamiError.cannotForcePass) {
+        #expect(throws: RummyError.cannotForcePass) {
             try StateBuilder.apply(.forcePass, by: 0, to: s)
         }
     }
@@ -145,9 +145,9 @@ struct TurnStructureTests {
     @Test func cannotThrowBeforeDrawingAndCannotDrawTwice() throws {
         let hand = distinctCards(14)
         let s = StateBuilder.turn(seat: 0, stage: .awaitingDraw, hands: [hand, [], [], []])
-        #expect(throws: RamiError.illegalPhase) { try StateBuilder.apply(.throwCard(hand[0]), by: 0, to: s) }
+        #expect(throws: RummyError.illegalPhase) { try StateBuilder.apply(.throwCard(hand[0]), by: 0, to: s) }
         let drawn = try StateBuilder.apply(.drawFromPile, by: 0, to: s)
-        #expect(throws: RamiError.illegalPhase) { try StateBuilder.apply(.drawFromPile, by: 0, to: drawn) }
+        #expect(throws: RummyError.illegalPhase) { try StateBuilder.apply(.drawFromPile, by: 0, to: drawn) }
     }
 
     @Test func throwEndsTurnAndPassesToNextSeat() throws {
@@ -175,12 +175,12 @@ struct TurnStructureTests {
 
     @Test func actingOutOfTurnThrows() {
         let s = StateBuilder.turn(seat: 0, stage: .awaitingDraw, hands: [distinctCards(14), [], [], []])
-        #expect(throws: RamiError.notYourTurn) { try StateBuilder.apply(.drawFromPile, by: 2, to: s) }
+        #expect(throws: RummyError.notYourTurn) { try StateBuilder.apply(.drawFromPile, by: 2, to: s) }
     }
 }
 
 struct ThrowTakeTests {
-    private func takeSetup(turnsCompleted: Int, laidDown: Bool, seat: Int = 1) -> (RamiState, Card) {
+    private func takeSetup(turnsCompleted: Int, laidDown: Bool, seat: Int = 1) -> (RummyState, Card) {
         let hand = distinctCards(14)
         let prevThrown = distinctCards(2, excluding: Set(hand.map(\.id)))
         let s = StateBuilder.turn(
@@ -194,7 +194,7 @@ struct ThrowTakeTests {
 
     @Test func takeThrowLockedUntilEveryoneHasPlayedOnce() {
         let (s, _) = takeSetup(turnsCompleted: 3, laidDown: true)
-        #expect(throws: RamiError.throwTakeLocked) { try StateBuilder.apply(.takeThrow, by: 1, to: s) }
+        #expect(throws: RummyError.throwTakeLocked) { try StateBuilder.apply(.takeThrow, by: 1, to: s) }
     }
 
     @Test func takeThrowAfterLayDownTakesPreviousPlayersTopThrow() throws {
@@ -258,18 +258,24 @@ struct ThrowTakeTests {
         var after = try StateBuilder.apply(.takeThrow, by: 1, to: s)
         #expect(after.phase == .turn(seat: 1, .awaitingThrow(drew: .takenThrow, pendingJoker: nil)))
         // Throwing before honoring the lay-down is illegal.
-        #expect(throws: RamiError.mustLayDownWithTake) {
+        #expect(throws: RummyError.mustLayDownWithTake) {
             try StateBuilder.apply(.throwCard(filler[0]), by: 1, to: after)
         }
         let melds = [kings, aces, run].map { cards in
             Meld(entries: cards.map { MeldEntry(card: $0, asRank: $0.rank!, asSuit: $0.suit!) })
         }
         after = try StateBuilder.apply(.layDown(melds: melds), by: 1, to: after)
+        #expect(!after.players[1].hasLaidDown)  // pending until the throw
+        #expect(after.players[1].pendingLayDownValue == 90)
+        let safeThrow = after.players[1].hand.first {
+            !RummyEngine.throwPenalized($0, tableMelds: after.tableMelds)
+        }!
+        after = try StateBuilder.apply(.throwCard(safeThrow), by: 1, to: after)
         #expect(after.players[1].hasLaidDown)
-        _ = try StateBuilder.apply(.throwCard(filler[0]), by: 1, to: after)
+        #expect(after.lastInitialLayDownTotal == 90)
     }
 
-    @Test func takeThrowAndLayDownMustMeetThreshold() {
+    @Test func takeThrowAndLayDownShortOfThresholdPenalizesAtTheThrow() throws {
         // Hand engineered so a valid but too-small meld exists.
         let meldCards = [TestCards.card(.two, .hearts), TestCards.card(.three, .hearts), TestCards.card(.four, .hearts)]
         let filler = distinctCards(11, excluding: Set(meldCards.map(\.id)))
@@ -281,9 +287,20 @@ struct ThrowTakeTests {
             turnsCompleted: 4)
         s.players[0].hand = distinctCards(14, excluding: Set((meldCards + filler + prevThrown).map(\.id)))
         let meld = Meld(entries: meldCards.map { MeldEntry(card: $0, asRank: $0.rank!, asSuit: $0.suit!) })
-        #expect(throws: RamiError.thresholdNotMet(required: 61, got: 9)) {
-            try StateBuilder.apply(.takeThrowAndLayDown(melds: [meld]), by: 1, to: s)
+        // Laying short is allowed — the throw ends the round at +100.
+        let laid = try StateBuilder.apply(.takeThrowAndLayDown(melds: [meld]), by: 1, to: s)
+        #expect(laid.players[1].pendingLayDownValue == 9)
+        let safeThrow = laid.players[1].hand.first {
+            !RummyEngine.throwPenalized($0, tableMelds: laid.tableMelds)
+        }!
+        let thrown = try StateBuilder.apply(.throwCard(safeThrow), by: 1, to: laid)
+        guard case .roundEnded(let result) = thrown.phase else {
+            Issue.record("expected the round to stop, got \(thrown.phase)")
+            return
         }
+        #expect(result.closerSeat == nil)
+        #expect(result.deltas[1] == 100)
+        #expect(result.deltas[0] == 0)
     }
 
     @Test func takeThrowAndLayDownSucceedsWhenThresholdMet() throws {
@@ -305,11 +322,18 @@ struct ThrowTakeTests {
         let melds = [kings, aces, run].map { cards in
             Meld(entries: cards.map { MeldEntry(card: $0, asRank: $0.rank!, asSuit: $0.suit!) })
         }
-        let after = try StateBuilder.apply(.takeThrowAndLayDown(melds: melds), by: 1, to: s)
-        #expect(after.players[1].hasLaidDown)
-        #expect(after.lastInitialLayDownTotal == 90)
+        var after = try StateBuilder.apply(.takeThrowAndLayDown(melds: melds), by: 1, to: s)
+        #expect(!after.players[1].hasLaidDown)  // pending until the throw
+        #expect(after.players[1].pendingLayDownValue == 90)
+        #expect(after.lastInitialLayDownTotal == nil)
         #expect(after.tableMelds.count == 3)
         #expect(after.players[1].hand.count == 5 + 1)  // filler + taken card
         #expect(after.players[1].takenThrows == prevThrown)
+        let safeThrow = after.players[1].hand.first {
+            !RummyEngine.throwPenalized($0, tableMelds: after.tableMelds)
+        }!
+        after = try StateBuilder.apply(.throwCard(safeThrow), by: 1, to: after)
+        #expect(after.players[1].hasLaidDown)
+        #expect(after.lastInitialLayDownTotal == 90)
     }
 }

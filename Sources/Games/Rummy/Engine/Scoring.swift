@@ -7,7 +7,7 @@ enum Scoring {
     /// of cards left in hand (2–10 face value; J/Q/K/A/joker = 10). Then
     /// eliminates players at or above the configured score and either
     /// continues to the next round or ends the match.
-    static func settleRound(_ s: inout RamiState, closerSeat: Int) {
+    static func settleRound(_ s: inout RummyState, closerSeat: Int) {
         var deltas = [Int](repeating: 0, count: s.players.count)
         for seat in s.players.indices where !s.players[seat].isEliminated {
             if seat == closerSeat {
@@ -23,13 +23,13 @@ enum Scoring {
 
     /// A player took the throw without any qualifying lay-down possible:
     /// they take 100 flat, everyone else 0, and the round ends immediately.
-    static func settleFailedTake(_ s: inout RamiState, penalized seat: Int) {
+    static func settleFailedTake(_ s: inout RummyState, penalized seat: Int) {
         var deltas = [Int](repeating: 0, count: s.players.count)
         deltas[seat] = 100
         finish(&s, deltas: deltas, closerSeat: nil)
     }
 
-    private static func finish(_ s: inout RamiState, deltas: [Int], closerSeat: Int?) {
+    private static func finish(_ s: inout RummyState, deltas: [Int], closerSeat: Int?) {
         var deltas = deltas
         for seat in s.players.indices {
             guard !s.players[seat].isEliminated else {
@@ -60,7 +60,7 @@ enum Scoring {
 
     /// Survivors ranked by fewest points, then eliminated players in reverse
     /// elimination order.
-    static func finalPlacements(_ s: RamiState) -> [FinalPlacement] {
+    static func finalPlacements(_ s: RummyState) -> [FinalPlacement] {
         let survivors = s.players.indices
             .filter { !s.players[$0].isEliminated }
             .sorted { s.players[$0].totalScore < s.players[$1].totalScore }

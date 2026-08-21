@@ -3,8 +3,8 @@ import Foundation
 
 /// Builds crafted mid-game states for legality tests.
 enum StateBuilder {
-    static func base(config: RulesConfig = .default) -> RamiState {
-        RamiState(
+    static func base(config: RulesConfig = .default) -> RummyState {
+        RummyState(
             config: config,
             players: (0..<4).map { PlayerState(name: "P\($0)", isHuman: $0 == 0) },
             dealerSeat: 3,
@@ -29,7 +29,7 @@ enum StateBuilder {
         tableMelds: [TableMeld] = [],
         drawPile: [Card]? = nil,
         config: RulesConfig = .default
-    ) -> RamiState {
+    ) -> RummyState {
         var s = base(config: config)
         for i in 0..<4 {
             s.players[i].hand = hands[i]
@@ -46,8 +46,8 @@ enum StateBuilder {
         return s
     }
 
-    static func apply(_ action: RamiAction, by seat: Int, to state: RamiState) throws -> RamiState {
+    static func apply(_ action: RummyAction, by seat: Int, to state: RummyState) throws -> RummyState {
         var rng = SeededRNG(seed: 7)
-        return try RamiEngine.apply(action, by: seat, to: state, rng: &rng)
+        return try RummyEngine.apply(action, by: seat, to: state, rng: &rng)
     }
 }

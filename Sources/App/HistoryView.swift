@@ -4,7 +4,7 @@ import SwiftUI
 struct HistoryView: View {
     let store: GameStore
     @State private var records: [MatchRecord] = []
-    @State private var activeGame: RamiState?
+    @State private var activeGame: RummyState?
 
     var body: some View {
         ZStack {
@@ -13,7 +13,7 @@ struct HistoryView: View {
                 VStack(spacing: 14) {
                     if let active = activeGame {
                         NavigationLink {
-                            GameTableView(viewModel: RamiGameViewModel(state: active, store: store))
+                            GameTableView(viewModel: RummyGameViewModel(state: active, store: store))
                         } label: {
                             activeCard(active)
                         }
@@ -46,7 +46,7 @@ struct HistoryView: View {
         }
     }
 
-    private func activeCard(_ state: RamiState) -> some View {
+    private func activeCard(_ state: RummyState) -> some View {
         Theme.panel {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {

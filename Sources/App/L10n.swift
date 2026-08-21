@@ -3,7 +3,7 @@ import Foundation
 /// All user-facing copy, centralized for future FR localization.
 enum L10n {
     static let appTitle = "Cards"
-    static let rami = "Rummy"
+    static let rummy = "Rummy"
     static let chkobba = "Chkobba"
     static let comingSoon = "Coming soon"
     static let settings = "Settings"
@@ -41,6 +41,8 @@ enum L10n {
     static let abandon = "Abandon"
     static let cancel = "Cancel"
     static let closed = "closed the round"
+    static let playVerdict = "Play!"
+    static let passVerdict = "Round passed"
     static let roundAbandoned = "Everyone passed — redealing"
     static let eliminated = "Eliminated"
     static let stats = "Stats"

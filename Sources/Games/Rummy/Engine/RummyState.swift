@@ -21,6 +21,11 @@ struct PlayerState: Codable, Hashable, Sendable {
     var hand: [Card] = []
     var throwStack: [Card] = []
     var hasLaidDown = false
+    /// Total of series laid this turn before the first lay-down is confirmed.
+    /// Table touch rule: a laid series never comes back. The threshold is only
+    /// checked when the turn ends with a throw: enough confirms the lay-down,
+    /// short means +100 and the round stops.
+    var pendingLayDownValue: Int?
     var isEliminated = false
     var totalScore = 0
     /// +10 per wasted throw (joker or meld-fitting card); settled at round end.
@@ -73,7 +78,7 @@ enum Phase: Codable, Hashable, Sendable {
     case matchEnded([FinalPlacement])
 }
 
-struct RamiState: Codable, Hashable, Sendable {
+struct RummyState: Codable, Hashable, Sendable {
     var config: RulesConfig
     var players: [PlayerState]      // 4 seats; seat 0 = human; turn order = ascending seat, wrapping
     var dealerSeat: Int

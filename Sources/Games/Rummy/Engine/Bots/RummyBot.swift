@@ -3,10 +3,10 @@ import Foundation
 /// Decides one action at a time from public information only. All three levels
 /// receive identical cards and identical views — difficulty changes strategy,
 /// never information or luck.
-struct RamiBot: Sendable {
+struct RummyBot: Sendable {
     let level: BotLevel
 
-    func decide(_ view: PublicGameView, rng: inout some RandomNumberGenerator) -> RamiAction {
+    func decide(_ view: PublicGameView, rng: inout some RandomNumberGenerator) -> RummyAction {
         switch view.phase {
         case .dealing(let shuffles):
             // Shuffle a random number of times, then pick a random pattern.
@@ -16,7 +16,7 @@ struct RamiBot: Sendable {
 
         case .vote:
             // A hand dead in doubles forces the redeal outright.
-            if RamiEngine.canForcePass(hand: view.hand) { return .forcePass }
+            if RummyEngine.canForcePass(hand: view.hand) { return .forcePass }
             return .declareIntent(play: wantsToPlay(view))
 
         case .turn(_, .awaitingDraw):
@@ -62,7 +62,7 @@ struct RamiBot: Sendable {
 
     // MARK: - Draw step
 
-    private func drawDecision(_ view: PublicGameView) -> RamiAction {
+    private func drawDecision(_ view: PublicGameView) -> RummyAction {
         guard view.throwTakeUnlocked, let takeable = view.takeableCard else { return .drawFromPile }
 
         if view.hasLaidDown {
@@ -119,10 +119,16 @@ struct RamiBot: Sendable {
 
     private func meldOrThrowDecision(
         _ view: PublicGameView, pendingJoker: Card?, rng: inout some RandomNumberGenerator
-    ) -> RamiAction {
+    ) -> RummyAction {
         // A joker swapped off the table must be replayed before anything else.
         if let joker = pendingJoker {
             return placeJoker(joker, view: view)
+        }
+
+        // Already laid this turn (pending until the throw): finish the turn —
+        // the laid total qualifies by construction.
+        if view.pendingLayDownValue != nil {
+            return .throwCard(chooseDiscard(view, rng: &rng))
         }
 
         // First cycle: draw and throw only, no lay-downs yet.
@@ -131,10 +137,10 @@ struct RamiBot: Sendable {
         }
 
         if !view.hasLaidDown {
-            // Close outright if the whole hand melds at threshold value.
+            // Close outright when the whole hand melds — going out never
+            // needs the threshold.
             if let closing = HandAnalysis.closingMelds(hand: view.hand) {
-                let total = closing.reduce(0) { $0 + ((try? $1.validatedThresholdValue()) ?? 0) }
-                if total >= view.requiredLayDown { return .layDown(melds: closing) }
+                return .layDown(melds: closing)
             }
             let partition = initialPartition(hand: view.hand, required: view.requiredLayDown)
             if partition.value >= view.requiredLayDown, !partition.melds.isEmpty,
@@ -171,11 +177,11 @@ struct RamiBot: Sendable {
 
     /// For a small hand: append only when every card except one throwable can
     /// be placed on the table right now — i.e. the appends chain to a close.
-    private func closingAppendOpportunity(_ view: PublicGameView) -> RamiAction? {
+    private func closingAppendOpportunity(_ view: PublicGameView) -> RummyAction? {
         let hand = view.hand
         for excluded in hand.indices where !hand[excluded].isJoker || hand.count == 1 {
             var melds = view.tableMelds
-            var firstAction: RamiAction?
+            var firstAction: RummyAction?
             var allPlaced = true
             for index in hand.indices where index != excluded {
                 let card = hand[index]
@@ -209,7 +215,7 @@ struct RamiBot: Sendable {
     }
 
     /// Lay the pending joker into a new meld, or append it to a table meld.
-    private func placeJoker(_ joker: Card, view: PublicGameView) -> RamiAction {
+    private func placeJoker(_ joker: Card, view: PublicGameView) -> RummyAction {
         if view.hand.count >= 2 {
             guard let jokerIndex = view.hand.firstIndex(of: joker) else {
                 return .throwCard(view.hand[0])  // unreachable; engine would reject anyway
@@ -230,7 +236,7 @@ struct RamiBot: Sendable {
 
     /// Swap a table joker for its real card when the freed joker is immediately
     /// reusable in a meld from hand.
-    private func jokerSwapOpportunity(_ view: PublicGameView) -> RamiAction? {
+    private func jokerSwapOpportunity(_ view: PublicGameView) -> RummyAction? {
         guard view.hand.count >= 7 else { return nil }  // keep a closable hand after replaying it
         for tableMeld in view.tableMelds {
             for entry in tableMeld.meld.entries where entry.card.isJoker {
@@ -257,7 +263,7 @@ struct RamiBot: Sendable {
     }
 
     /// First deadwood card that legally extends any table meld.
-    private func appendOpportunity(_ view: PublicGameView) -> RamiAction? {
+    private func appendOpportunity(_ view: PublicGameView) -> RummyAction? {
         let partition = HandAnalysis.bestPartition(hand: view.hand)
         for index in view.hand.indices where partition.mask & (1 << index) == 0 {
             let card = view.hand[index]
@@ -299,13 +305,13 @@ struct RamiBot: Sendable {
         // Never choose a penalized throw (joker / meld-fitting card) while a
         // legal one exists — the engine would bounce it back with +10.
         let legalDeadwood = deadwood.filter {
-            !RamiEngine.throwPenalized(hand[$0], tableMelds: view.tableMelds)
+            !RummyEngine.throwPenalized(hand[$0], tableMelds: view.tableMelds)
         }
         if !legalDeadwood.isEmpty {
             deadwood = legalDeadwood
         } else {
             let legalAnywhere = hand.indices.filter {
-                !RamiEngine.throwPenalized(hand[$0], tableMelds: view.tableMelds)
+                !RummyEngine.throwPenalized(hand[$0], tableMelds: view.tableMelds)
             }
             if !legalAnywhere.isEmpty { deadwood = legalAnywhere }
         }

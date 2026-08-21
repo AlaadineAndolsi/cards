@@ -21,14 +21,14 @@ actor GameStore {
 
     // MARK: Active game
 
-    func saveActiveGame(_ state: RamiState) {
+    func saveActiveGame(_ state: RummyState) {
         guard let data = try? JSONEncoder().encode(state) else { return }
         try? data.write(to: activeURL, options: .atomic)
     }
 
-    func loadActiveGame() -> RamiState? {
+    func loadActiveGame() -> RummyState? {
         guard let data = try? Data(contentsOf: activeURL) else { return nil }
-        return try? JSONDecoder().decode(RamiState.self, from: data)
+        return try? JSONDecoder().decode(RummyState.self, from: data)
     }
 
     func clearActiveGame() {

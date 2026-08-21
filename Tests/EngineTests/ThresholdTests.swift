@@ -18,7 +18,7 @@ struct LayDownTests {
     private let smallRun = [TestCards.card(.two, .hearts), TestCards.card(.three, .hearts), TestCards.card(.four, .hearts)]
 
     private func turnState(hand: [Card], laidDown: Bool = false, lastInitial: Int? = nil,
-                           config: RulesConfig = .default) -> RamiState {
+                           config: RulesConfig = .default) -> RummyState {
         StateBuilder.turn(
             seat: 0, stage: .awaitingThrow(drew: .pile, pendingJoker: nil),
             hands: [hand, [], [], []],
@@ -33,34 +33,89 @@ struct LayDownTests {
         config.minimumLayDown = 60
         var s = turnState(hand: handWith(kings + aces, filler: 9), config: config)
         s.turnsCompletedThisRound = 2  // dealer has not had their turn yet
-        #expect(throws: RamiError.layDownLocked) {
+        #expect(throws: RummyError.layDownLocked) {
             try StateBuilder.apply(.layDown(melds: [meldOf(kings), meldOf(aces)]), by: 0, to: s)
         }
     }
 
-    @Test func initialLayDownBelowConfiguredMinimumIsRejected() {
+    @Test func initialLayDownBelowMinimumPendsThenThrowPenalizes() throws {
+        // Laying is always allowed serie by serie — the count check happens at
+        // the throw: short of the minimum, the round stops at +100.
         let s = turnState(hand: handWith(smallRun, filler: 12))
-        #expect(throws: RamiError.thresholdNotMet(required: 61, got: 9)) {
-            try StateBuilder.apply(.layDown(melds: [meldOf(smallRun)]), by: 0, to: s)
+        let laid = try StateBuilder.apply(.layDown(melds: [meldOf(smallRun)]), by: 0, to: s)
+        #expect(!laid.players[0].hasLaidDown)
+        #expect(laid.players[0].pendingLayDownValue == 9)
+        let safeThrow = laid.players[0].hand.first {
+            !RummyEngine.throwPenalized($0, tableMelds: laid.tableMelds)
+        }!
+        let thrown = try StateBuilder.apply(.throwCard(safeThrow), by: 0, to: laid)
+        guard case .roundEnded(let result) = thrown.phase else {
+            Issue.record("expected the round to stop, got \(thrown.phase)")
+            return
         }
+        #expect(result.closerSeat == nil)
+        #expect(result.deltas[0] == 100)
+        #expect(result.deltas[1...] == [0, 0, 0])
     }
 
-    @Test func initialLayDownAtConfiguredMinimumSucceeds() throws {
+    @Test func initialLayDownAtMinimumConfirmsOnTheThrow() throws {
         var config = RulesConfig.default
         config.minimumLayDown = 60
         let s = turnState(hand: handWith(kings + aces, filler: 9), config: config)
-        let after = try StateBuilder.apply(.layDown(melds: [meldOf(kings), meldOf(aces)]), by: 0, to: s)
-        #expect(after.players[0].hasLaidDown)
-        #expect(after.lastInitialLayDownTotal == 60)
-        #expect(after.players[0].hand.count == 9)
+        let laid = try StateBuilder.apply(.layDown(melds: [meldOf(kings), meldOf(aces)]), by: 0, to: s)
+        #expect(!laid.players[0].hasLaidDown)
+        #expect(laid.players[0].pendingLayDownValue == 60)
+        #expect(laid.lastInitialLayDownTotal == nil)
+        #expect(laid.players[0].hand.count == 9)
+        let safeThrow = laid.players[0].hand.first {
+            !RummyEngine.throwPenalized($0, tableMelds: laid.tableMelds)
+        }!
+        let thrown = try StateBuilder.apply(.throwCard(safeThrow), by: 0, to: laid)
+        #expect(thrown.players[0].hasLaidDown)
+        #expect(thrown.players[0].pendingLayDownValue == nil)
+        #expect(thrown.lastInitialLayDownTotal == 60)
     }
 
-    @Test func escalationRequiresPreviousPlusOne() {
-        // Previous initial lay-down was 65 → this one needs 66; 60 fails.
-        let s = turnState(hand: handWith(kings + aces, filler: 9), lastInitial: 65)
-        #expect(throws: RamiError.thresholdNotMet(required: 66, got: 60)) {
-            try StateBuilder.apply(.layDown(melds: [meldOf(kings), meldOf(aces)]), by: 0, to: s)
+    @Test func pendingAccumulatesSerieBySerie() throws {
+        // Series can be laid one at a time; the pending total accumulates.
+        let s = turnState(hand: handWith(kings + smallRun, filler: 8))
+        var laid = try StateBuilder.apply(
+            .layDown(melds: [meldOf(kings)]), by: 0, to: s)
+        #expect(laid.players[0].pendingLayDownValue == 30)
+        laid = try StateBuilder.apply(.layDown(melds: [meldOf(smallRun)]), by: 0, to: laid)
+        #expect(laid.players[0].pendingLayDownValue == 39)
+        #expect(laid.tableMelds.count == 2)
+    }
+
+    @Test func layingTheWholeHandClosesWithoutTheMinimum() throws {
+        // "All lay down": going out completely never needs the count.
+        let spare = TestCards.card(.nine, .diamonds)
+        let s = turnState(hand: smallRun + [spare])
+        let laid = try StateBuilder.apply(.layDown(melds: [meldOf(smallRun)]), by: 0, to: s)
+        let thrown = try StateBuilder.apply(.throwCard(spare), by: 0, to: laid)
+        guard case .roundEnded(let result) = thrown.phase else {
+            Issue.record("expected a closed round, got \(thrown.phase)")
+            return
         }
+        #expect(result.closerSeat == 0)
+        #expect(result.deltas[0] == 0)
+    }
+
+    @Test func escalationChecksPreviousPlusOneAtTheThrow() throws {
+        // Previous initial lay-down was 65 → this one needs 66; 60 stops the
+        // round with the +100 penalty when the turn ends.
+        let s = turnState(hand: handWith(kings + aces, filler: 9), lastInitial: 65)
+        let laid = try StateBuilder.apply(.layDown(melds: [meldOf(kings), meldOf(aces)]), by: 0, to: s)
+        #expect(laid.players[0].pendingLayDownValue == 60)
+        let safeThrow = laid.players[0].hand.first {
+            !RummyEngine.throwPenalized($0, tableMelds: laid.tableMelds)
+        }!
+        let thrown = try StateBuilder.apply(.throwCard(safeThrow), by: 0, to: laid)
+        guard case .roundEnded(let result) = thrown.phase else {
+            Issue.record("expected the round to stop, got \(thrown.phase)")
+            return
+        }
+        #expect(result.deltas[0] == 100)
     }
 
     @Test func subsequentLayDownsHaveNoThreshold() throws {
@@ -73,14 +128,14 @@ struct LayDownTests {
 
     @Test func layDownMayNotEmptyTheHand() {
         let s = turnState(hand: kings + aces, laidDown: true)
-        #expect(throws: RamiError.mustKeepACardToThrow) {
+        #expect(throws: RummyError.mustKeepACardToThrow) {
             try StateBuilder.apply(.layDown(melds: [meldOf(kings), meldOf(aces)]), by: 0, to: s)
         }
     }
 
     @Test func layDownCardsMustComeFromHand() {
         let s = turnState(hand: handWith(kings, filler: 11), laidDown: true)
-        #expect(throws: RamiError.cardNotInHand) {
+        #expect(throws: RummyError.cardNotInHand) {
             try StateBuilder.apply(.layDown(melds: [meldOf(aces)]), by: 0, to: s)
         }
     }
@@ -88,9 +143,12 @@ struct LayDownTests {
     @Test func escalationChainResetsNextRound() throws {
         var s = turnState(hand: handWith(kings, filler: 11), lastInitial: 90)
         s.phase = .roundEnded(RoundResult(closerSeat: 1, deltas: [0, 0, 0, 0], newlyEliminated: []))
+        s.drawPile = Array(s.drawPile.prefix(3))  // simulate a nearly spent pile
         let next = try StateBuilder.apply(.startNextRound, by: 0, to: s)
         #expect(next.lastInitialLayDownTotal == nil)
         #expect(next.requiredLayDown == RulesConfig.default.minimumLayDown)
+        // The pile is rebuilt to the full double deck every round.
+        #expect(next.drawPile.count == 108)
     }
 }
 
@@ -103,7 +161,7 @@ struct AppendAndJokerTests {
     }
 
     private func state(hand: [Card], laidDown: Bool = true, melds: [TableMeld],
-                       pendingJoker: Card? = nil) -> RamiState {
+                       pendingJoker: Card? = nil) -> RummyState {
         StateBuilder.turn(
             seat: 0, stage: .awaitingThrow(drew: .pile, pendingJoker: pendingJoker),
             hands: [hand, [], [], []],
@@ -126,7 +184,7 @@ struct AppendAndJokerTests {
         let seven = TestCards.card(.seven, .hearts)
         let meldID = UUID()
         let s = state(hand: [seven, TestCards.card(.nine, .clubs)], laidDown: false, melds: [tableWithRun(id: meldID)])
-        #expect(throws: RamiError.notLaidDownYet) {
+        #expect(throws: RummyError.notLaidDownYet) {
             try StateBuilder.apply(
                 .appendCard(MeldEntry(card: seven, asRank: .seven, asSuit: .hearts), meldID: meldID), by: 0, to: s)
         }
@@ -140,7 +198,7 @@ struct AppendAndJokerTests {
             MeldEntry(card: TestCards.card(.eight, .hearts), asRank: .eight, asSuit: .hearts),
         ])
         let s = state(hand: [three, TestCards.card(.nine, .clubs)], melds: [five])
-        #expect(throws: RamiError.meldFull) {
+        #expect(throws: RummyError.meldFull) {
             try StateBuilder.apply(
                 .appendCard(MeldEntry(card: three, asRank: .three, asSuit: .hearts), meldID: meldID), by: 0, to: s)
         }
@@ -150,7 +208,7 @@ struct AppendAndJokerTests {
         let nine = TestCards.card(.nine, .spades)
         let meldID = UUID()
         let s = state(hand: [nine, TestCards.card(.ten, .clubs)], melds: [tableWithRun(id: meldID)])
-        #expect(throws: RamiError.cannotAppendHere) {
+        #expect(throws: RummyError.cannotAppendHere) {
             try StateBuilder.apply(
                 .appendCard(MeldEntry(card: nine, asRank: .nine, asSuit: .spades), meldID: meldID), by: 0, to: s)
         }
@@ -174,7 +232,7 @@ struct AppendAndJokerTests {
         #expect(s.tableMelds[0].meld.entries[1].card == five)
         #expect(s.phase == .turn(seat: 0, .awaitingThrow(drew: .pile, pendingJoker: joker)))
         // Throwing with the joker still in hand is illegal.
-        #expect(throws: RamiError.jokerPending) { try StateBuilder.apply(.throwCard(seven), by: 0, to: s) }
+        #expect(throws: RummyError.jokerPending) { try StateBuilder.apply(.throwCard(seven), by: 0, to: s) }
         // Using the joker in a new meld clears the debt.
         let newMeld = Meld(entries: [
             MeldEntry(card: seven, asRank: .seven, asSuit: .clubs),
@@ -184,7 +242,7 @@ struct AppendAndJokerTests {
         s = try StateBuilder.apply(.layDown(melds: [newMeld]), by: 0, to: s)
         #expect(s.phase == .turn(seat: 0, .awaitingThrow(drew: .pile, pendingJoker: nil)))
         // The swapped-out real card now lives on the table, not in hand.
-        #expect(throws: RamiError.cardNotInHand) { try StateBuilder.apply(.throwCard(five), by: 0, to: s) }
+        #expect(throws: RummyError.cardNotInHand) { try StateBuilder.apply(.throwCard(five), by: 0, to: s) }
         _ = try StateBuilder.apply(.throwCard(spare), by: 0, to: s)
     }
 
@@ -198,7 +256,7 @@ struct AppendAndJokerTests {
         ]))
         let wrong = TestCards.card(.five, .spades)
         let s = state(hand: [wrong, TestCards.card(.nine, .clubs)], melds: [meldWithJoker])
-        #expect(throws: RamiError.noJokerInMeld) {
+        #expect(throws: RummyError.noJokerInMeld) {
             try StateBuilder.apply(.swapJoker(meldID: meldID, realCard: wrong), by: 0, to: s)
         }
     }

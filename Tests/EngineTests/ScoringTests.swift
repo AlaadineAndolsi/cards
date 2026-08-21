@@ -5,7 +5,7 @@ import Testing
 struct ClosingAndScoringTests {
     /// Seat 0 about to close: 1 card in hand. Seat 1 laid down, holds K+9 (19).
     /// Seat 2 never laid down (100 flat). Seat 3 laid down, holds a joker + 5 = 15.
-    private func closingState() -> RamiState {
+    private func closingState() -> RummyState {
         let last = TestCards.card(.two, .clubs)
         let s1 = [TestCards.card(.king, .diamonds), TestCards.card(.nine, .hearts)]
         let s2 = [TestCards.card(.three, .spades)]
@@ -76,7 +76,7 @@ struct ClosingAndScoringTests {
         #expect(s.aliveCount == 3)
         // Dealer rotation from seat 3 skips nobody here; deal skips seat 2.
         var rng = SeededRNG(seed: 9)
-        s = try RamiEngine.apply(.deal(.p1111), by: s.dealerSeat, to: s, rng: &rng)
+        s = try RummyEngine.apply(.deal(.p1111), by: s.dealerSeat, to: s, rng: &rng)
         #expect(s.players[2].hand.isEmpty)
         #expect(s.players[s.dealerSeat].hand.count == 15)
         // Unlock now needs only 3 completed turns.
@@ -121,13 +121,13 @@ struct ReshuffleTests {
 struct SerializationTests {
     @Test func midGameStateRoundTripsIdentically() throws {
         var rng = SeededRNG(seed: 77)
-        var s = RamiEngine.newGame(config: .default, names: ["A", "B", "C", "D"], dealerSeat: 0, rng: &rng)
-        s = try RamiEngine.apply(.shuffle, by: 0, to: s, rng: &rng)
-        s = try RamiEngine.apply(.deal(.p3222), by: 0, to: s, rng: &rng)
-        s = try RamiEngine.apply(.declareIntent(play: true), by: 1, to: s, rng: &rng)
-        s = try RamiEngine.apply(.drawFromPile, by: 1, to: s, rng: &rng)
+        var s = RummyEngine.newGame(config: .default, names: ["A", "B", "C", "D"], dealerSeat: 0, rng: &rng)
+        s = try RummyEngine.apply(.shuffle, by: 0, to: s, rng: &rng)
+        s = try RummyEngine.apply(.deal(.p3222), by: 0, to: s, rng: &rng)
+        s = try RummyEngine.apply(.declareIntent(play: true), by: 1, to: s, rng: &rng)
+        s = try RummyEngine.apply(.drawFromPile, by: 1, to: s, rng: &rng)
         let data = try JSONEncoder().encode(s)
-        let decoded = try JSONDecoder().decode(RamiState.self, from: data)
+        let decoded = try JSONDecoder().decode(RummyState.self, from: data)
         #expect(decoded == s)
     }
 
@@ -136,8 +136,8 @@ struct SerializationTests {
         config.minimumLayDown = 75
         config.eliminationScore = 500
         var rng = SeededRNG(seed: 3)
-        let s = RamiEngine.newGame(config: config, names: ["A", "B", "C", "D"], dealerSeat: 1, rng: &rng)
-        let decoded = try JSONDecoder().decode(RamiState.self, from: JSONEncoder().encode(s))
+        let s = RummyEngine.newGame(config: config, names: ["A", "B", "C", "D"], dealerSeat: 1, rng: &rng)
+        let decoded = try JSONDecoder().decode(RummyState.self, from: JSONEncoder().encode(s))
         #expect(decoded.config.minimumLayDown == 75)
         #expect(decoded.config.eliminationScore == 500)
     }

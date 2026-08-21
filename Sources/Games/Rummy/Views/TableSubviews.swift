@@ -49,16 +49,9 @@ struct SeatView: View {
     }
 }
 
-/// Popup: each player's most recent throw.
+/// Popup: each player's most recent throw. Tapping anywhere closes it.
 struct LastThrowsView: View {
     let players: [(name: String, card: Card?)]
-
-    init(players: [(name: String, card: Card?)]) {
-        self.players = players
-        #if DEBUG
-        print("RAMI LastThrowsView init with \(players.count) players")
-        #endif
-    }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -104,6 +97,7 @@ struct EliminatedSeatView: View {
 struct SideMeldsView: View {
     let melds: [TableMeld]
     let horizontal: Bool
+    var pendingHighlight: Bool = false
     let onTap: (UUID) -> Void
 
     var body: some View {
@@ -118,39 +112,54 @@ struct SideMeldsView: View {
 
     private var chips: some View {
         ForEach(melds.prefix(4)) { tableMeld in
-            MiniMeldView(meld: tableMeld.meld)
+            MiniMeldView(meld: tableMeld.meld, pending: pendingHighlight)
                 .onTapGesture { onTap(tableMeld.id) }
         }
     }
 }
 
 /// A player's meld rendered as tiny readable chips (rank + suit glyph).
+/// Jokers read unmistakably: an amber chip with a star over the face they play.
 struct MiniMeldView: View {
     let meld: Meld
+    var pending = false
 
     var body: some View {
         HStack(spacing: 1.5) {
             ForEach(meld.entries, id: \.card.id) { entry in
-                VStack(spacing: -1) {
-                    Text(entry.card.isJoker ? "★" : entry.asRank.label)
-                        .font(.system(size: 8.5, weight: .bold, design: .rounded))
-                    Text(entry.asSuit.symbol)
-                        .font(.system(size: 7.5))
+                VStack(spacing: -1.5) {
+                    if entry.card.isJoker {
+                        Image(systemName: "star.fill")
+                            .font(.system(size: 6.5, weight: .black))
+                        Text(entry.asRank.label)
+                            .font(.system(size: 7, weight: .black, design: .rounded))
+                    } else {
+                        Text(entry.asRank.label)
+                            .font(.system(size: 8.5, weight: .bold, design: .rounded))
+                        Text(entry.asSuit.symbol)
+                            .font(.system(size: 7.5))
+                    }
                 }
-                .foregroundStyle(entry.asSuit.isRed ? Color(red: 0.9, green: 0.15, blue: 0.15) : .black)
+                .foregroundStyle(
+                    entry.card.isJoker
+                        ? Color.black
+                        : (entry.asSuit.isRed ? Color(red: 0.9, green: 0.15, blue: 0.15) : .black))
                 .frame(width: 13, height: 19)
                 .background(
                     RoundedRectangle(cornerRadius: 2.5)
-                        .fill(.white)
+                        .fill(entry.card.isJoker ? Theme.accent : .white)
                         .overlay(
                             RoundedRectangle(cornerRadius: 2.5)
-                                .strokeBorder(
-                                    entry.card.isJoker ? Theme.accent : Color.black.opacity(0.15),
-                                    lineWidth: entry.card.isJoker ? 1 : 0.5)))
+                                .strokeBorder(Color.black.opacity(0.15), lineWidth: 0.5)))
             }
         }
         .padding(2)
         .background(Color.black.opacity(0.25), in: RoundedRectangle(cornerRadius: 4))
+        .overlay(
+            RoundedRectangle(cornerRadius: 4)
+                .strokeBorder(
+                    pending ? Theme.accent.opacity(0.9) : .clear,
+                    style: StrokeStyle(lineWidth: 1.5, dash: pending ? [3] : [])))
     }
 }
 
@@ -197,14 +206,16 @@ struct ThrowSpotView: View {
 }
 
 /// Face-down draw pile with a clear remaining count below. Tap = purchase.
+/// On your draw it grows slightly and breathes instead of wearing a border.
 struct PileView: View {
     let count: Int
     let enabled: Bool
     let onTap: () -> Void
+    @State private var breathe = false
 
     var body: some View {
         Button(action: onTap) {
-            VStack(spacing: 5) {
+            VStack(spacing: 6) {
                 ZStack {
                     ForEach(0..<3) { index in
                         CardBackView()
@@ -212,11 +223,9 @@ struct PileView: View {
                             .offset(x: CGFloat(index) * -1.5, y: CGFloat(index) * -1.5)
                     }
                 }
-                .overlay(
-                    RoundedRectangle(cornerRadius: 7)
-                        .strokeBorder(enabled ? Theme.accent : .clear, lineWidth: 2.5)
-                        .shadow(color: enabled ? Theme.accent.opacity(0.5) : .clear, radius: 6)
-                        .frame(width: 54, height: 72))
+                .shadow(color: enabled ? Theme.accent.opacity(0.65) : .black.opacity(0.3),
+                        radius: enabled ? 10 : 4, y: 3)
+                .scaleEffect(enabled ? (breathe ? 1.16 : 1.09) : 1)
                 Text("\(count)")
                     .font(.system(size: 14, weight: .heavy, design: .rounded))
                     .monospacedDigit()
@@ -224,31 +233,45 @@ struct PileView: View {
                     .padding(.horizontal, 10)
                     .padding(.vertical, 3)
                     .background(Color.black.opacity(0.45), in: Capsule())
-                    .foregroundStyle(Theme.accent)
+                    .foregroundStyle(enabled ? Theme.accent : .white.opacity(0.85))
             }
         }
         .buttonStyle(.plain)
+        .onChange(of: enabled) { _, active in
+            if active {
+                withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
+                    breathe = true
+                }
+            } else {
+                withAnimation(.cardSpring) { breathe = false }
+            }
+        }
         .accessibilityLabel("\(L10n.pile): \(count)")
     }
 }
 
-/// The human hand as an arc. Tap selects, dragging sideways reorders,
-/// sliding a card upward throws it.
+/// The human hand as an arc, driven by gestures:
+/// tap = select / unlock · long-press = lock the selected series ·
+/// drag sideways = reorder · slide up = throw (or lay a locked series) ·
+/// hold a dragged card high = big melds appear, drop on one to append.
 struct ArcHandView: View {
-    @State var viewModel: RamiGameViewModel
+    @State var viewModel: RummyGameViewModel
     let namespace: Namespace.ID
     let reduceMotion: Bool
 
     @State private var draggedID: Int?
     @State private var dragStartX: CGFloat = 0
     @State private var dragTranslation: CGSize = .zero
+    @State private var draggedGroup: [Int] = []
+    @State private var hoverTask: Task<Void, Never>?
 
     private let cardWidth: CGFloat = 70
     private let handHeight: CGFloat = 200
 
     var body: some View {
         GeometryReader { geometry in
-            let cards = viewModel.humanHand
+            let all = viewModel.humanHand
+            let cards = viewModel.dealtHandCount.map { Array(all.prefix($0)) } ?? all
             let count = max(cards.count, 1)
             let width = geometry.size.width
             let step = count > 1 ? min(42, (width - cardWidth - 20) / CGFloat(count - 1)) : 0
@@ -258,15 +281,18 @@ struct ArcHandView: View {
                 ForEach(Array(cards.enumerated()), id: \.element.id) { index, card in
                     let centerOffset = CGFloat(index) - CGFloat(count - 1) / 2
                     let isDragged = draggedID == card.id
+                    let inDraggedGroup = !isDragged && draggedGroup.contains(card.id)
                     let selected = viewModel.selectedCardIDs.contains(card.id)
                     let locked = viewModel.lockedCardIDs.contains(card.id)
+                    let restX = width / 2 + centerOffset * step
                     let x = isDragged
                         ? dragStartX + dragTranslation.width
-                        : width / 2 + centerOffset * step
+                        : restX + (inDraggedGroup ? dragTranslation.width : 0)
                     let y = baseY
                         + pow(centerOffset, 2) * 0.95         // arc: edges dip
                         + (selected ? -22 : 0)
-                        + (isDragged ? dragTranslation.height : 0)
+                        + (locked ? 12 : 0)                    // locked series sit lower
+                        + ((isDragged || inDraggedGroup) ? dragTranslation.height : 0)
 
                     CardView(card: card)
                         .matchedGeometryEffect(id: card.id, in: namespace)
@@ -282,28 +308,45 @@ struct ArcHandView: View {
                         .position(x: x, y: y)
                         // Classic fan: each card shows its left part with the
                         // index on top; the card to the right overlaps it.
-                        .zIndex(isDragged ? 100 : Double(index))
+                        .zIndex(isDragged || inDraggedGroup ? 100 + Double(index) : Double(index))
                         .onTapGesture { viewModel.toggleSelection(card) }
+                        .onLongPressGesture(minimumDuration: 0.45) {
+                            viewModel.longPressLock(card)
+                        }
                         .gesture(dragGesture(for: card, index: index, step: step, width: width))
                 }
             }
             .animation(.cardSpring, value: cards.map(\.id))
             .animation(.cardSpring, value: viewModel.selectedCardIDs)
+            .animation(.cardSpring, value: viewModel.lockedSeries)
         }
         .frame(height: handHeight)
     }
 
     private func dragGesture(for card: Card, index: Int, step: CGFloat, width: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 10)
+        DragGesture(minimumDistance: 10, coordinateSpace: .global)
             .onChanged { value in
                 let cards = viewModel.humanHand
+                let locked = viewModel.lockedCardIDs.contains(card.id)
                 if draggedID != card.id {
                     draggedID = card.id
+                    draggedGroup = locked ? viewModel.lockedGroup(containing: card.id) : []
                     let count = CGFloat(cards.count - 1)
                     let centerOffset = CGFloat(index) - count / 2
                     dragStartX = width / 2 + centerOffset * step
                 }
                 dragTranslation = value.translation
+                if locked {
+                    // Locked series travel as one block — no reorder.
+                    return
+                }
+                // Hold the card high over the table → big melds fade in so the
+                // card can be dropped straight onto one.
+                if viewModel.canAppendToTable, value.translation.height < -60 {
+                    startHoverCountdown()
+                } else if value.translation.height > -40 {
+                    cancelHoverCountdown(hidePreview: true)
+                }
                 // Live reorder while sliding sideways.
                 guard step > 0, abs(value.translation.height) < 60 else { return }
                 guard let current = cards.firstIndex(where: { $0.id == card.id }) else { return }
@@ -314,14 +357,42 @@ struct ArcHandView: View {
                     var order = cards.map(\.id)
                     order.remove(at: current)
                     order.insert(card.id, at: target)
-                    withAnimation(.cardSpring) { viewModel.handOrder = order }
+                    withAnimation(.cardSpring) { viewModel.reorderHand(order) }
                 }
             }
             .onEnded { value in
                 let translation = value.translation
+                let locked = viewModel.lockedCardIDs.contains(card.id)
+                let previewWasShown = viewModel.meldPreviewShown
+                cancelHoverCountdown(hidePreview: false)
                 withAnimation(.cardSpring) {
                     draggedID = nil
+                    draggedGroup = []
                     dragTranslation = .zero
+                }
+                if locked {
+                    // Slide a locked series up = lay it (pending until the throw).
+                    if translation.height < -70,
+                       let seriesIndex = viewModel.lockedSeriesIndex(containing: card.id) {
+                        Haptics.action()
+                        withAnimation(reduceMotion ? .default : .cardSpring) {
+                            viewModel.layLockedSeries(at: seriesIndex)
+                        }
+                    }
+                    return
+                }
+                if previewWasShown {
+                    // Drop on a big meld = append; anywhere else just closes it.
+                    defer { withAnimation(.cardSpring) { viewModel.meldPreviewShown = false } }
+                    if let target = viewModel.meldDropFrames.first(where: {
+                        $0.value.insetBy(dx: -12, dy: -12).contains(value.location)
+                    }) {
+                        withAnimation(reduceMotion ? .default : .cardSpring) {
+                            viewModel.appendCard(card, to: target.key)
+                        }
+                        return
+                    }
+                    if translation.height < -45 { return }  // near the preview: don't throw by accident
                 }
                 // Slide up = throw. Generous drop zone: any clear upward slide.
                 if translation.height < -45, viewModel.canThrow {
@@ -331,5 +402,23 @@ struct ArcHandView: View {
                     }
                 }
             }
+    }
+
+    private func startHoverCountdown() {
+        guard hoverTask == nil, !viewModel.meldPreviewShown else { return }
+        hoverTask = Task {
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            Haptics.tap()
+            withAnimation(.cardSpring) { viewModel.meldPreviewShown = true }
+        }
+    }
+
+    private func cancelHoverCountdown(hidePreview: Bool) {
+        hoverTask?.cancel()
+        hoverTask = nil
+        if hidePreview, viewModel.meldPreviewShown {
+            withAnimation(.cardSpring) { viewModel.meldPreviewShown = false }
+        }
     }
 }

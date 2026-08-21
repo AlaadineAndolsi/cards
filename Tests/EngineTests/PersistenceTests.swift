@@ -12,8 +12,8 @@ struct PersistenceTests {
     @Test func activeGameRoundTrips() async throws {
         let store = temporaryStore()
         var rng = SeededRNG(seed: 11)
-        var state = RamiEngine.newGame(config: .default, names: ["A", "B", "C", "D"], dealerSeat: 2, rng: &rng)
-        state = try RamiEngine.apply(.deal(.p2111), by: 2, to: state, rng: &rng)
+        var state = RummyEngine.newGame(config: .default, names: ["A", "B", "C", "D"], dealerSeat: 2, rng: &rng)
+        state = try RummyEngine.apply(.deal(.p2111), by: 2, to: state, rng: &rng)
         await store.saveActiveGame(state)
         let loaded = await store.loadActiveGame()
         #expect(loaded == state)
@@ -24,7 +24,7 @@ struct PersistenceTests {
     @Test func historyAppendsAndDeduplicates() async throws {
         let store = temporaryStore()
         var rng = SeededRNG(seed: 12)
-        let state = RamiEngine.newGame(config: .default, names: ["A", "B", "C", "D"], dealerSeat: 0, rng: &rng)
+        let state = RummyEngine.newGame(config: .default, names: ["A", "B", "C", "D"], dealerSeat: 0, rng: &rng)
         let placements = (0..<4).map { FinalPlacement(seat: $0, place: $0 + 1, score: $0 * 100) }
         let record = MatchRecord(state: state, placements: placements, endedAt: Date())
         await store.appendToHistory(record)

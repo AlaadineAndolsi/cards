@@ -1,11 +1,11 @@
 import SwiftUI
 
-struct RamiHomeView: View {
+struct RummyHomeView: View {
     let settings: SettingsStore
     let store: GameStore
-    @State private var savedGame: RamiState?
+    @State private var savedGame: RummyState?
     @State private var showLevelPicker = false
-    @State private var startedViewModel: RamiGameViewModel?
+    @State private var startedViewModel: RummyGameViewModel?
 
     var body: some View {
         ZStack {
@@ -15,7 +15,7 @@ struct RamiHomeView: View {
                 Image(systemName: "suit.spade.fill")
                     .font(.system(size: 44))
                     .foregroundStyle(Theme.accent)
-                Text(L10n.rami)
+                Text(L10n.rummy)
                     .font(.system(.largeTitle, design: .serif).weight(.bold))
                     .foregroundStyle(.white)
                 VStack(spacing: 14) {
@@ -31,7 +31,7 @@ struct RamiHomeView: View {
                     }
                     if let savedGame {
                         NavigationLink {
-                            GameTableView(viewModel: RamiGameViewModel(state: savedGame, store: store))
+                            GameTableView(viewModel: RummyGameViewModel(state: savedGame, store: store))
                         } label: {
                             Label(L10n.resumeGame, systemImage: "play.fill")
                                 .font(.headline)
@@ -47,7 +47,7 @@ struct RamiHomeView: View {
                 Spacer()
             }
         }
-        .navigationTitle(L10n.rami)
+        .navigationTitle(L10n.rummy)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
@@ -80,11 +80,11 @@ struct RamiHomeView: View {
 
     private func start(_ level: BotLevel) {
         Haptics.action()
-        startedViewModel = RamiGameViewModel.newGame(settings: settings, botLevel: level, store: store)
+        startedViewModel = RummyGameViewModel.newGame(settings: settings, botLevel: level, store: store)
     }
 }
 
-extension RamiGameViewModel: Hashable {
-    nonisolated static func == (lhs: RamiGameViewModel, rhs: RamiGameViewModel) -> Bool { lhs === rhs }
+extension RummyGameViewModel: Hashable {
+    nonisolated static func == (lhs: RummyGameViewModel, rhs: RummyGameViewModel) -> Bool { lhs === rhs }
     nonisolated func hash(into hasher: inout Hasher) { hasher.combine(ObjectIdentifier(self)) }
 }

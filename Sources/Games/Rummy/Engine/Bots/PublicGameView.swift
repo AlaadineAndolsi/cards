@@ -28,8 +28,10 @@ struct PublicGameView: Sendable {
     let turnsCompletedThisRound: Int
     let aliveCount: Int
     let hasLaidDown: Bool
+    /// Own unconfirmed lay-down total this turn (threshold checks at the throw).
+    let pendingLayDownValue: Int?
 
-    init(state: RamiState, seat: Int) {
+    init(state: RummyState, seat: Int) {
         self.seat = seat
         self.hand = state.players[seat].hand
         self.config = state.config
@@ -49,6 +51,7 @@ struct PublicGameView: Sendable {
         self.turnsCompletedThisRound = state.turnsCompletedThisRound
         self.aliveCount = state.aliveCount
         self.hasLaidDown = state.players[seat].hasLaidDown
+        self.pendingLayDownValue = state.players[seat].pendingLayDownValue
     }
 
     var nextAliveSeat: Int {

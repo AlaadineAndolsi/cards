@@ -1,6 +1,6 @@
 import Foundation
 
-enum RamiAction: Codable, Hashable, Sendable {
+enum RummyAction: Codable, Hashable, Sendable {
     // Dealing phase (dealer only)
     case shuffle
     case deal(DealPattern)
@@ -24,7 +24,7 @@ enum RamiAction: Codable, Hashable, Sendable {
     case startNextRound
 }
 
-enum RamiError: Error, Equatable, Sendable {
+enum RummyError: Error, Equatable, Sendable {
     case notYourTurn
     case illegalPhase
     case invalidMeld(MeldError)

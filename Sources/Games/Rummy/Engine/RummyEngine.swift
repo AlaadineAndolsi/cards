@@ -1,9 +1,9 @@
 import Foundation
 
-/// Pure, deterministic Rami state machine. Every action either produces a new
-/// validated state or throws a `RamiError`. No hidden information ever leaks:
+/// Pure, deterministic Rummy state machine. Every action either produces a new
+/// validated state or throws a `RummyError`. No hidden information ever leaks:
 /// the RNG is injected and bots only ever receive a `PublicGameView`.
-enum RamiEngine {
+enum RummyEngine {
 
     static func newGame(
         config: RulesConfig,
@@ -11,12 +11,12 @@ enum RamiEngine {
         humanSeat: Int = 0,
         dealerSeat: Int,
         rng: inout some RandomNumberGenerator
-    ) -> RamiState {
+    ) -> RummyState {
         precondition(names.count == 4)
         var pile = Card.fullDeck()
         // Base fairness shuffle; the dealer's explicit shuffles come on top.
         pile.fisherYatesShuffle(using: &rng)
-        return RamiState(
+        return RummyState(
             config: config,
             players: names.enumerated().map { PlayerState(name: $1, isHuman: $0 == humanSeat) },
             dealerSeat: dealerSeat,
@@ -28,31 +28,31 @@ enum RamiEngine {
     }
 
     static func apply(
-        _ action: RamiAction,
+        _ action: RummyAction,
         by seat: Int,
-        to state: RamiState,
+        to state: RummyState,
         rng: inout some RandomNumberGenerator
-    ) throws -> RamiState {
+    ) throws -> RummyState {
         var s = state
         switch (action, state.phase) {
         case (.shuffle, .dealing(let count)):
-            guard seat == s.dealerSeat else { throw RamiError.notYourTurn }
+            guard seat == s.dealerSeat else { throw RummyError.notYourTurn }
             s.drawPile.fisherYatesShuffle(using: &rng)
             s.phase = .dealing(shuffles: count + 1)
 
         case (.deal(let pattern), .dealing):
-            guard seat == s.dealerSeat else { throw RamiError.notYourTurn }
+            guard seat == s.dealerSeat else { throw RummyError.notYourTurn }
             try deal(pattern: pattern, in: &s)
 
         case (.forcePass, .vote(_, let current)):
-            guard seat == current else { throw RamiError.notYourTurn }
+            guard seat == current else { throw RummyError.notYourTurn }
             guard Self.canForcePass(hand: s.players[seat].hand) else {
-                throw RamiError.cannotForcePass
+                throw RummyError.cannotForcePass
             }
             abandonRound(&s)
 
         case (.declareIntent(let play), .vote(let proposer, let current)):
-            guard seat == current else { throw RamiError.notYourTurn }
+            guard seat == current else { throw RummyError.notYourTurn }
             if play {
                 // Someone wants to play: the round starts normally with the
                 // player to the dealer's right.
@@ -68,14 +68,14 @@ enum RamiEngine {
             }
 
         case (.drawFromPile, .turn(let turnSeat, .awaitingDraw)):
-            guard seat == turnSeat else { throw RamiError.notYourTurn }
+            guard seat == turnSeat else { throw RummyError.notYourTurn }
             if s.drawPile.isEmpty { try reshuffleThrowStacksIntoPile(&s, rng: &rng) }
-            guard let card = s.drawPile.popLast() else { throw RamiError.pileEmpty }
+            guard let card = s.drawPile.popLast() else { throw RummyError.pileEmpty }
             s.players[seat].hand.append(card)
             s.phase = .turn(seat: seat, .awaitingThrow(drew: .pile, pendingJoker: nil))
 
         case (.takeThrow, .turn(let turnSeat, .awaitingDraw)):
-            guard seat == turnSeat else { throw RamiError.notYourTurn }
+            guard seat == turnSeat else { throw RummyError.notYourTurn }
             let card = try takePreviousThrow(&s, seat: seat)
             s.players[seat].hand.append(card)
             s.players[seat].takenThrows.append(card)
@@ -90,8 +90,8 @@ enum RamiEngine {
             }
 
         case (.takeThrowAndLayDown(let melds), .turn(let turnSeat, .awaitingDraw)):
-            guard seat == turnSeat else { throw RamiError.notYourTurn }
-            guard !s.players[seat].hasLaidDown else { throw RamiError.alreadyLaidDown }
+            guard seat == turnSeat else { throw RummyError.notYourTurn }
+            guard !s.players[seat].hasLaidDown else { throw RummyError.alreadyLaidDown }
             let card = try takePreviousThrow(&s, seat: seat)
             s.players[seat].hand.append(card)
             s.players[seat].takenThrows.append(card)
@@ -99,29 +99,29 @@ enum RamiEngine {
             s.phase = .turn(seat: seat, .awaitingThrow(drew: .takenThrow, pendingJoker: nil))
 
         case (.layDown(let melds), .turn(let turnSeat, .awaitingThrow(let drew, let pendingJoker))):
-            guard seat == turnSeat else { throw RamiError.notYourTurn }
+            guard seat == turnSeat else { throw RummyError.notYourTurn }
             // First cycle is pure draw-and-throw: nobody may lay before the
             // turn comes back around to the dealer.
             guard s.turnsCompletedThisRound >= s.aliveCount - 1 else {
-                throw RamiError.layDownLocked
+                throw RummyError.layDownLocked
             }
             let stillPending = try performLayDown(
                 melds: melds, seat: seat, in: &s, pendingJoker: pendingJoker)
             s.phase = .turn(seat: seat, .awaitingThrow(drew: drew, pendingJoker: stillPending))
 
         case (.appendCard(let entry, let meldID), .turn(let turnSeat, .awaitingThrow(let drew, let pendingJoker))):
-            guard seat == turnSeat else { throw RamiError.notYourTurn }
-            guard s.players[seat].hasLaidDown else { throw RamiError.notLaidDownYet }
+            guard seat == turnSeat else { throw RummyError.notYourTurn }
+            guard s.players[seat].hasLaidDown else { throw RummyError.notLaidDownYet }
             guard let index = s.tableMelds.firstIndex(where: { $0.id == meldID }) else {
-                throw RamiError.meldNotFound
+                throw RummyError.meldNotFound
             }
-            guard s.tableMelds[index].meld.entries.count < Meld.maxSize else { throw RamiError.meldFull }
+            guard s.tableMelds[index].meld.entries.count < Meld.maxSize else { throw RummyError.meldFull }
             guard let handIndex = s.players[seat].hand.firstIndex(of: entry.card) else {
-                throw RamiError.cardNotInHand
+                throw RummyError.cardNotInHand
             }
-            guard s.players[seat].hand.count >= 2 else { throw RamiError.mustKeepACardToThrow }
+            guard s.players[seat].hand.count >= 2 else { throw RummyError.mustKeepACardToThrow }
             guard let grown = s.tableMelds[index].meld.inserting(entry) else {
-                throw RamiError.cannotAppendHere
+                throw RummyError.cannotAppendHere
             }
             s.tableMelds[index].meld = grown
             s.players[seat].hand.remove(at: handIndex)
@@ -129,19 +129,19 @@ enum RamiEngine {
             s.phase = .turn(seat: seat, .awaitingThrow(drew: drew, pendingJoker: stillPending))
 
         case (.swapJoker(let meldID, let realCard), .turn(let turnSeat, .awaitingThrow(let drew, let pendingJoker))):
-            guard seat == turnSeat else { throw RamiError.notYourTurn }
-            guard s.players[seat].hasLaidDown else { throw RamiError.notLaidDownYet }
-            guard pendingJoker == nil else { throw RamiError.jokerPending }
+            guard seat == turnSeat else { throw RummyError.notYourTurn }
+            guard s.players[seat].hasLaidDown else { throw RummyError.notLaidDownYet }
+            guard pendingJoker == nil else { throw RummyError.jokerPending }
             guard let meldIndex = s.tableMelds.firstIndex(where: { $0.id == meldID }) else {
-                throw RamiError.meldNotFound
+                throw RummyError.meldNotFound
             }
             guard let handIndex = s.players[seat].hand.firstIndex(of: realCard) else {
-                throw RamiError.cardNotInHand
+                throw RummyError.cardNotInHand
             }
             guard let entryIndex = s.tableMelds[meldIndex].meld.entries.firstIndex(where: {
                 $0.card.isJoker && $0.asRank == realCard.rank && $0.asSuit == realCard.suit
             }) else {
-                throw RamiError.noJokerInMeld
+                throw RummyError.noJokerInMeld
             }
             let joker = s.tableMelds[meldIndex].meld.entries[entryIndex].card
             s.tableMelds[meldIndex].meld.entries[entryIndex].card = realCard
@@ -150,14 +150,16 @@ enum RamiEngine {
             s.phase = .turn(seat: seat, .awaitingThrow(drew: drew, pendingJoker: joker))
 
         case (.throwCard(let card), .turn(let turnSeat, .awaitingThrow(let drew, let pendingJoker))):
-            guard seat == turnSeat else { throw RamiError.notYourTurn }
-            guard pendingJoker == nil else { throw RamiError.jokerPending }
-            // A pre-lay-down take must be honored before the turn can end.
-            if drew == .takenThrow, !s.players[seat].hasLaidDown {
-                throw RamiError.mustLayDownWithTake
+            guard seat == turnSeat else { throw RummyError.notYourTurn }
+            guard pendingJoker == nil else { throw RummyError.jokerPending }
+            // A pre-lay-down take must be honored: at least one series must be
+            // on the table before the turn can end.
+            if drew == .takenThrow, !s.players[seat].hasLaidDown,
+               s.players[seat].pendingLayDownValue == nil {
+                throw RummyError.mustLayDownWithTake
             }
             guard let handIndex = s.players[seat].hand.firstIndex(of: card) else {
-                throw RamiError.cardNotInHand
+                throw RummyError.cardNotInHand
             }
             // Wasted throw rule: a joker, or a card that fits a table meld,
             // costs +10 and comes back — unless no legal throw exists at all.
@@ -174,7 +176,23 @@ enum RamiEngine {
             s.players[seat].throwStack.append(card)
             s.turnsCompletedThisRound += 1
             if s.players[seat].hand.isEmpty {
+                // Going out completely never needs the threshold: "it's done".
+                s.players[seat].pendingLayDownValue = nil
                 Scoring.settleRound(&s, closerSeat: seat)
+            } else if !s.players[seat].hasLaidDown,
+                      let pending = s.players[seat].pendingLayDownValue {
+                // The lay-down check happens here, not when laying: enough
+                // confirms it, short stops the round at +100 for the layer.
+                if pending >= s.requiredLayDown {
+                    s.players[seat].hasLaidDown = true
+                    s.players[seat].pendingLayDownValue = nil
+                    s.lastInitialLayDownTotal = pending
+                    let next = s.nextAliveSeat(after: seat)
+                    s.phase = .turn(seat: next, turnStartStage(for: next, in: s))
+                } else {
+                    s.players[seat].pendingLayDownValue = nil
+                    Scoring.settleFailedTake(&s, penalized: seat)
+                }
             } else {
                 let next = s.nextAliveSeat(after: seat)
                 s.phase = .turn(seat: next, turnStartStage(for: next, in: s))
@@ -184,7 +202,7 @@ enum RamiEngine {
             startNextRound(&s)
 
         default:
-            throw RamiError.illegalPhase
+            throw RummyError.illegalPhase
         }
         return s
     }
@@ -221,13 +239,13 @@ enum RamiEngine {
     }
 
     /// The dealer's 15th card replaces their first draw of the round.
-    private static func turnStartStage(for seat: Int, in state: RamiState) -> TurnStage {
+    private static func turnStartStage(for seat: Int, in state: RummyState) -> TurnStage {
         state.players[seat].hand.count == 15
             ? .awaitingThrow(drew: .dealt, pendingJoker: nil)
             : .awaitingDraw
     }
 
-    private static func deal(pattern: DealPattern, in s: inout RamiState) throws {
+    private static func deal(pattern: DealPattern, in s: inout RummyState) throws {
         let alive = s.aliveCount
         // Dealing order: player to the dealer's right first, dealer last.
         var order: [Int] = []
@@ -241,7 +259,7 @@ enum RamiEngine {
             for (position, receiver) in order.enumerated() {
                 let amount = receiver == s.dealerSeat ? pass[0] : pass[position + 1]
                 for _ in 0..<amount {
-                    guard let card = s.drawPile.popLast() else { throw RamiError.pileEmpty }
+                    guard let card = s.drawPile.popLast() else { throw RummyError.pileEmpty }
                     s.players[receiver].hand.append(card)
                 }
             }
@@ -251,23 +269,24 @@ enum RamiEngine {
         s.phase = .vote(proposerSeat: firstActor, currentSeat: firstActor)
     }
 
-    private static func abandonRound(_ s: inout RamiState) {
+    private static func abandonRound(_ s: inout RummyState) {
         for seat in s.players.indices {
             s.players[seat].roundScores.append(nil)
         }
         resetForNewRound(&s, nextDealer: s.nextAliveSeat(after: s.dealerSeat))
     }
 
-    static func startNextRound(_ s: inout RamiState) {
+    static func startNextRound(_ s: inout RummyState) {
         resetForNewRound(&s, nextDealer: s.nextAliveSeat(after: s.dealerSeat))
     }
 
-    private static func resetForNewRound(_ s: inout RamiState, nextDealer: Int) {
+    private static func resetForNewRound(_ s: inout RummyState, nextDealer: Int) {
         for seat in s.players.indices {
             s.players[seat].hand = []
             s.players[seat].throwStack = []
             s.players[seat].takenThrows = []
             s.players[seat].hasLaidDown = false
+            s.players[seat].pendingLayDownValue = nil
             s.players[seat].penaltiesThisRound = 0
         }
         s.tableMelds = []
@@ -279,45 +298,44 @@ enum RamiEngine {
         s.phase = .dealing(shuffles: 0)
     }
 
-    private static func takePreviousThrow(_ s: inout RamiState, seat: Int) throws -> Card {
-        guard s.throwTakeUnlocked else { throw RamiError.throwTakeLocked }
+    private static func takePreviousThrow(_ s: inout RummyState, seat: Int) throws -> Card {
+        guard s.throwTakeUnlocked else { throw RummyError.throwTakeLocked }
         let previous = s.previousAliveSeat(before: seat)
         guard let card = s.players[previous].throwStack.popLast() else {
-            throw RamiError.previousThrowUnavailable
+            throw RummyError.previousThrowUnavailable
         }
         return card
     }
 
-    /// Removes meld cards from the hand and puts the melds on the table.
-    /// Enforces the first-lay-down threshold (with escalation) and updates the
-    /// escalation chain. Returns the still-pending joker, if any.
+    /// Removes meld cards from the hand and puts the melds on the table. Each
+    /// series only needs to be valid — the first-lay-down threshold is checked
+    /// when the turn ends with a throw, not here. Until then the total
+    /// accumulates in `pendingLayDownValue`. Table touch: laid series never
+    /// come back to the hand.
+    /// Returns the still-pending joker, if any.
     @discardableResult
     private static func performLayDown(
-        melds: [Meld], seat: Int, in s: inout RamiState, pendingJoker: Card?
+        melds: [Meld], seat: Int, in s: inout RummyState, pendingJoker: Card?
     ) throws -> Card? {
-        guard !melds.isEmpty else { throw RamiError.invalidMeld(.invalidSize) }
+        guard !melds.isEmpty else { throw RummyError.invalidMeld(.invalidSize) }
         var total = 0
         for meld in melds {
             do { total += try meld.validatedThresholdValue() }
-            catch { throw RamiError.invalidMeld(error) }
+            catch { throw RummyError.invalidMeld(error) }
         }
         let allCards = melds.flatMap(\.cards)
         guard Set(allCards.map(\.id)).count == allCards.count else {
-            throw RamiError.invalidMeld(.duplicateCardInstance)
+            throw RummyError.invalidMeld(.duplicateCardInstance)
         }
         var hand = s.players[seat].hand
         for card in allCards {
-            guard let index = hand.firstIndex(of: card) else { throw RamiError.cardNotInHand }
+            guard let index = hand.firstIndex(of: card) else { throw RummyError.cardNotInHand }
             hand.remove(at: index)
         }
-        guard !hand.isEmpty else { throw RamiError.mustKeepACardToThrow }
+        guard !hand.isEmpty else { throw RummyError.mustKeepACardToThrow }
         if !s.players[seat].hasLaidDown {
-            let required = s.requiredLayDown
-            guard total >= required else {
-                throw RamiError.thresholdNotMet(required: required, got: total)
-            }
-            s.players[seat].hasLaidDown = true
-            s.lastInitialLayDownTotal = total
+            s.players[seat].pendingLayDownValue =
+                (s.players[seat].pendingLayDownValue ?? 0) + total
         }
         s.players[seat].hand = hand
         for meld in melds {
@@ -328,14 +346,14 @@ enum RamiEngine {
     }
 
     private static func reshuffleThrowStacksIntoPile(
-        _ s: inout RamiState, rng: inout some RandomNumberGenerator
+        _ s: inout RummyState, rng: inout some RandomNumberGenerator
     ) throws {
         var collected: [Card] = []
         for seat in s.players.indices {
             collected.append(contentsOf: s.players[seat].throwStack)
             s.players[seat].throwStack = []
         }
-        guard !collected.isEmpty else { throw RamiError.pileEmpty }
+        guard !collected.isEmpty else { throw RummyError.pileEmpty }
         collected.fisherYatesShuffle(using: &rng)
         s.drawPile = collected
     }

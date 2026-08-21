@@ -6,8 +6,8 @@ import UIKit
 enum Theme {
     static let accent = Color(red: 0xC7 / 255.0, green: 0x89 / 255.0, blue: 0x1F / 255.0)
 
-    // Felt adapts to the system appearance: deep green in dark mode, a
-    // brighter table green in light mode. No in-app switcher.
+    // The app is forced dark at the root (no theme variants), so the dark
+    // tuple is what ships; the light tuple only remains as a fallback.
     private static func adaptive(dark: (Double, Double, Double), light: (Double, Double, Double)) -> Color {
         Color(uiColor: UIColor { traits in
             let (r, g, b) = traits.userInterfaceStyle == .dark ? dark : light
