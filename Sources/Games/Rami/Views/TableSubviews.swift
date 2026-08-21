@@ -268,7 +268,7 @@ struct ArcHandView: View {
                         .rotationEffect(.degrees(isDragged ? 0 : centerOffset * 3.0))
                         .scaleEffect(isDragged ? 1.1 : 1)
                         .position(x: x, y: y)
-                        .zIndex(isDragged ? 100 : Double(index))
+                        .zIndex(isDragged ? 100 : Double(count - index))  // left card always on top
                         .onTapGesture { viewModel.toggleSelection(card) }
                         .gesture(dragGesture(for: card, index: index, step: step, width: width))
                 }
