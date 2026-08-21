@@ -623,7 +623,8 @@ final class RummyGameViewModel {
             (sortRankKey($1), suitIndex($0), $0.id) < (sortRankKey($0), suitIndex($1), $1.id)
         }
         return jokers + strong
-            + numberClusters(weak, leadingSuit: strong.last?.suit)
+            + numberClusters(weak, leadingSuit: strong.last?.suit,
+                             support: nonJokers, endGap: maxEndGap)
             + appendableOrdered
     }
 
@@ -632,16 +633,35 @@ final class RummyGameViewModel {
     /// potential), ties by higher rank — so 7-7 precedes a loose 4-3-3, and
     /// lone singles land at the far right. Suits chain across the boundaries
     /// (…9♣ | 7♣ 7♠…) so same-suit near-runs stay adjacent.
-    private func numberClusters(_ cards: [Card], leadingSuit: Suit? = nil) -> [Card] {
+    private func numberClusters(
+        _ cards: [Card], leadingSuit: Suit? = nil,
+        support: [Card] = [], endGap: Int = 2
+    ) -> [Card] {
         let groups = Dictionary(grouping: cards) { sortRankKey($0) }
+        let keys = groups.keys.sorted(by: >)
         var clusters: [[Int]] = []
         var current: [Int] = []
-        for key in groups.keys.sorted(by: >) {
-            if let last = current.last, last - key > 1 {
-                clusters.append(current)
-                current = []
+        for (index, key) in keys.enumerated() {
+            if let last = current.last, last - key == 1 {
+                current.append(key)  // chains grow downward through anything
+                continue
             }
-            current.append(key)
+            if !current.isEmpty { clusters.append(current) }
+            current = []
+            // A lone single may only HEAD a chain when it links to the group
+            // below by suit — a stray K never rides along with foreign queens.
+            let group = groups[key] ?? []
+            if group.count == 1, index + 1 < keys.count, keys[index + 1] == key - 1 {
+                let suits = Set(group.compactMap(\.suit))
+                let linksBelow = (groups[keys[index + 1]] ?? []).contains {
+                    $0.suit.map(suits.contains) ?? false
+                }
+                if !linksBelow {
+                    clusters.append([key])
+                    continue
+                }
+            }
+            current = [key]
         }
         if !current.isEmpty { clusters.append(current) }
         func pairedCards(_ cluster: [Int]) -> Int {
@@ -650,10 +670,28 @@ final class RummyGameViewModel {
                 return total + (count >= 2 ? count : 0)
             }
         }
+        // A cluster is real combo material when it spans ranks, or when a
+        // same-rank pair has same-suit support nearby in the hand. Unsupported
+        // pairs (like two foreign queens) drift right, before the singles.
+        func isCombo(_ cluster: [Int]) -> Bool {
+            if cluster.count > 1 { return true }
+            let group = groups[cluster[0]] ?? []
+            guard group.count >= 2 else { return false }
+            let suits = Set(group.compactMap(\.suit))
+            return support.contains { card in
+                guard let suit = card.suit else { return false }
+                let key = sortRankKey(card)
+                return suits.contains(suit) && key != cluster[0]
+                    && abs(key - cluster[0]) <= endGap
+            }
+        }
         let ordered = clusters.sorted { a, b in
             let pairsA = pairedCards(a)
             let pairsB = pairedCards(b)
             if pairsA != pairsB { return pairsA > pairsB }
+            let comboA = isCombo(a)
+            let comboB = isCombo(b)
+            if comboA != comboB { return comboA }
             return a.first! > b.first!
         }
         // Flatten with suit chaining: each rank group enters on the suit the
