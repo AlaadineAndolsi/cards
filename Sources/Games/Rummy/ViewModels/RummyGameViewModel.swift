@@ -521,6 +521,7 @@ final class RummyGameViewModel {
             var values: [Int]                     // display values, descending
             var members: [Int: Card] = [:]        // value → the run card
             var attachments: [Int: [Card]] = [:]  // value → same-rank mates
+            var tailMates: [Card] = []            // a pair lining up below the run
         }
         var runs: [ProtoRun] = []
 
@@ -702,6 +703,26 @@ final class RummyGameViewModel {
             }
         }
 
+        // A leftover REAL pair (distinct suits) sitting right under a run's
+        // bottom lines up beneath it: K-K-Q-J-10 followed by the two nines.
+        // A duplicate pair (two copies of one card) is dead and stays weak.
+        do {
+            var byRank: [Int: [Card]] = [:]
+            for card in loose { byRank[sortRankKey(card), default: []].append(card) }
+            for (value, group) in byRank where group.count >= 2 {
+                let distinctSuits = Set(group.compactMap(\.suit))
+                guard distinctSuits.count >= 2,
+                      let runIndex = runs.indices.first(where: {
+                          runs[$0].values.last == value + 1
+                      })
+                else { continue }
+                runs[runIndex].tailMates.append(contentsOf: group.sorted {
+                    (suitIndex($0), $0.id) < (suitIndex($1), $1.id)
+                })
+                loose.removeAll { card in group.contains { $0.id == card.id } }
+            }
+        }
+
         // With two jokers in hand, a leftover pair is a ready set (the pair
         // plus joker twins) — it becomes a combo block placed by its rank,
         // landing right after the jokers when it outranks the runs.
@@ -712,6 +733,7 @@ final class RummyGameViewModel {
             }
             var promoted = Set<Int>()
             for (value, group) in byRank where group.count >= 2 {
+                guard Set(group.compactMap(\.suit)).count >= 2 else { continue }
                 let ordered = group.sorted {
                     (suitIndex($0), $0.id) < (suitIndex($1), $1.id)
                 }
@@ -742,6 +764,7 @@ final class RummyGameViewModel {
                     if let member = run.members[value] { strong.append(member) }
                 }
             }
+            strong.append(contentsOf: run.tailMates)
         }
 
         // Loose cards that fit somebody's lays go to the far right, with
