@@ -367,34 +367,72 @@ final class RummyGameViewModel {
         }
     }
 
-    // MARK: Sorting — the two sorts combine; the first one activated wins ties.
+    // MARK: Sorting — one sort at a time; activating one removes the other.
 
-    enum SortKey: Equatable { case rank, suit }
-    /// Active sort keys in activation order (first = primary). Sorting stays
-    /// applied: fresh draws slot into place until a manual drag clears it.
-    private(set) var sortPriority: [SortKey] = []
+    enum SortMode: Equatable { case rank, suit, smart }
+    /// The single active sort. It stays applied — fresh draws slot into
+    /// place — until a manual drag clears it.
+    private(set) var activeSort: SortMode?
 
-    func toggleSort(_ key: SortKey) {
+    func toggleSort(_ mode: SortMode) {
         Haptics.tap()
-        if let index = sortPriority.firstIndex(of: key) {
-            sortPriority.remove(at: index)
-        } else {
-            sortPriority.append(key)
-        }
+        activeSort = activeSort == mode ? nil : mode
         applySortIfActive()
     }
 
     private func applySortIfActive() {
-        guard !sortPriority.isEmpty else { return }
+        guard let mode = activeSort else { return }
         let locked = lockedSeries.flatMap { $0 }
         let rest = state.players[humanSeat].hand.filter { !locked.contains($0.id) }
         let ordered: [Card]
-        if sortPriority.first == .rank {
-            ordered = rankChainedOrder(rest)
-        } else {
-            ordered = suitGroupedOrder(rest)
+        switch mode {
+        case .rank: ordered = rankChainedOrder(rest)
+        case .suit: ordered = suitGroupedOrder(rest)
+        case .smart: ordered = smartOrder(rest)
         }
         handOrder = locked + ordered.map(\.id)
+    }
+
+    /// Smart sort — type and number at once. A card stays with its suit when
+    /// it chains to same-suit neighbors (rank gap ≤ 1, or ≤ 2 when a joker in
+    /// hand can bridge the hole; the ace chains both to the 2 and to the
+    /// king). Everything else falls into the number groups.
+    private func smartOrder(_ cards: [Card]) -> [Card] {
+        let jokers = cards.filter(\.isJoker)
+        let maxGap = jokers.isEmpty ? 1 : 2
+        var runCards: [Card] = []
+        var looseCards: [Card] = []
+        for suit in [Suit.spades, .hearts, .clubs, .diamonds] {
+            let suited = cards.filter { $0.suit == suit }
+            guard !suited.isEmpty else { continue }
+            var values = Set(suited.compactMap { $0.rank?.rawValue })
+            if values.contains(1) { values.insert(14) }  // ace also sits above the king
+            var clusters: [[Int]] = []
+            var current: [Int] = []
+            for value in values.sorted() {
+                if let last = current.last, value - last > maxGap {
+                    clusters.append(current)
+                    current = []
+                }
+                current.append(value)
+            }
+            if !current.isEmpty { clusters.append(current) }
+            var runValues = Set<Int>()
+            for cluster in clusters where cluster.count >= 2 {
+                runValues.formUnion(cluster)
+            }
+            for card in suited {
+                guard let rank = card.rank?.rawValue else { continue }
+                let chains = rank == 1
+                    ? runValues.contains(1) || runValues.contains(14)
+                    : runValues.contains(rank)
+                if chains { runCards.append(card) } else { looseCards.append(card) }
+            }
+        }
+        let numberSection = looseCards.sorted {
+            (sortRankKey($1), suitIndex($0), $0.id) < (sortRankKey($0), suitIndex($1), $1.id)
+        }
+        return jokers + suitGroupedOrder(runCards) + numberSection
     }
 
     /// Type-first sort: jokers leftmost, suits in fixed order, ranks
@@ -468,7 +506,7 @@ final class RummyGameViewModel {
 
     /// Manual reordering takes over: it clears the active sorts.
     func reorderHand(_ order: [Int]) {
-        sortPriority = []
+        activeSort = nil
         handOrder = order
     }
 

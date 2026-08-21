@@ -400,29 +400,22 @@ struct GameTableView: View {
         viewModel.isHumanTurn && viewModel.humanStage == .awaitingDraw
     }
 
-    /// Both sorts can be active together — the badge shows which is primary.
+    /// One sort at a time: smart (type + number), by number, by type.
     private var handActions: some View {
         VStack(spacing: 8) {
-            sortAction("textformat.123", key: .rank)
-            sortAction("suit.spade.fill", key: .suit)
+            sortAction("sparkles", mode: .smart)
+            sortAction("textformat.123", mode: .rank)
+            sortAction("suit.spade.fill", mode: .suit)
             smallAction("xmark.circle", active: false) { viewModel.cancelSelection() }
                 .opacity(viewModel.selectedCardIDs.isEmpty && viewModel.lockedCardIDs.isEmpty
                          ? 0.35 : 1)
         }
     }
 
-    private func sortAction(_ symbol: String, key: RummyGameViewModel.SortKey) -> some View {
-        let order = viewModel.sortPriority.firstIndex(of: key)
-        return smallAction(symbol, active: order != nil) { viewModel.toggleSort(key) }
-            .overlay(alignment: .topTrailing) {
-                if let order, viewModel.sortPriority.count > 1 {
-                    Text("\(order + 1)")
-                        .font(.system(size: 8, weight: .black, design: .rounded))
-                        .frame(width: 13, height: 13)
-                        .background(Color.black.opacity(0.6), in: Circle())
-                        .foregroundStyle(Theme.accent)
-                }
-            }
+    private func sortAction(_ symbol: String, mode: RummyGameViewModel.SortMode) -> some View {
+        smallAction(symbol, active: viewModel.activeSort == mode) {
+            viewModel.toggleSort(mode)
+        }
     }
 
     private func smallAction(_ symbol: String, active: Bool, action: @escaping () -> Void) -> some View {
@@ -463,8 +456,11 @@ struct GameTableView: View {
             // where errors and hints appear — between the totals and the
             // cards, without pushing the totals around.
             statusChips
+            // Equal breathing room above and below the strip — the gap under
+            // it matches a selected card popping up out of the fan.
             ZStack { hintArea }
                 .frame(height: 34)
+                .padding(.top, 20)
                 .animation(.cardSpring, value: viewModel.stripNotice)
                 .animation(.cardSpring, value: viewModel.lastError)
             ArcHandView(viewModel: viewModel, namespace: cardSpace, reduceMotion: reduceMotion)
