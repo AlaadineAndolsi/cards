@@ -392,12 +392,38 @@ final class RummyGameViewModel {
         if sortPriority.first == .rank {
             ordered = rankChainedOrder(rest)
         } else {
-            ordered = rest.sorted {
-                (suitIndex($0), sortRankKey($1), $0.id)
-                    < (suitIndex($1), sortRankKey($0), $1.id)
-            }
+            ordered = suitGroupedOrder(rest)
         }
         handOrder = locked + ordered.map(\.id)
+    }
+
+    /// Type-first sort: jokers leftmost, suits in fixed order, ranks
+    /// descending with the ace as the biggest card on the left of its suit —
+    /// EXCEPT when that suit holds no K/Q/J but does hold a 2, 3 or 4: then
+    /// the ace slides to the right end of the suit, next to its low run.
+    private func suitGroupedOrder(_ cards: [Card]) -> [Card] {
+        let jokers = cards.filter(\.isJoker)
+        let bySuit = Dictionary(grouping: cards.filter { !$0.isJoker }) { $0.suit! }
+        var result = jokers
+        for suit in [Suit.spades, .hearts, .clubs, .diamonds] {
+            guard var group = bySuit[suit] else { continue }
+            group.sort {
+                (sortRankKey($1), $0.id) < (sortRankKey($0), $1.id)
+            }
+            let hasHonor = group.contains {
+                $0.rank == .king || $0.rank == .queen || $0.rank == .jack
+            }
+            let hasLowRun = group.contains {
+                ($0.rank?.rawValue).map { (2...4).contains($0) } ?? false
+            }
+            if !hasHonor, hasLowRun {
+                let aces = group.filter { $0.rank == .ace }
+                group.removeAll { $0.rank == .ace }
+                group.append(contentsOf: aces)
+            }
+            result.append(contentsOf: group)
+        }
+        return result
     }
 
     /// Number-first sort: jokers leftmost, ranks descending (ace above king),
