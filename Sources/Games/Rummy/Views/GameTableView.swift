@@ -58,24 +58,35 @@ struct GameTableView: View {
                         .zIndex(40)
                 }
                 if let banner = viewModel.banner {
-                    CenterBannerView(banner: banner)
-                        .position(x: geometry.size.width / 2, y: geometry.size.height * 0.40)
-                        .transition(.scale(scale: 0.7).combined(with: .opacity))
-                        .allowsHitTesting(false)
-                        .zIndex(50)
+                    if banner.style == .verdict {
+                        // Verdicts: big arcade gold text, no popup, under the throws.
+                        VerdictTextView(text: banner.text)
+                            .position(x: geometry.size.width / 2,
+                                      y: throwCenter(in: geometry.size).y + 122)
+                            .transition(.scale(scale: 0.4).combined(with: .opacity))
+                            .allowsHitTesting(false)
+                            .zIndex(50)
+                    } else {
+                        CenterBannerView(banner: banner)
+                            .position(x: geometry.size.width / 2, y: geometry.size.height * 0.40)
+                            .transition(.scale(scale: 0.7).combined(with: .opacity))
+                            .allowsHitTesting(false)
+                            .zIndex(50)
+                    }
                 }
                 #if DEBUG
                 // Design review: launch with SHOW_MESSAGE_DEMO=1 to see one
                 // example of every message category at once.
                 if ProcessInfo.processInfo.environment["SHOW_MESSAGE_DEMO"] == "1" {
-                    VStack(spacing: 16) {
+                    Group {
                         CenterBannerView(banner: .init(
                             text: "Hamadi took the throw", style: .note,
                             icon: "hand.point.down.fill"))
-                        CenterBannerView(banner: .init(
-                            text: L10n.playVerdict, style: .verdict, icon: "play.fill"))
+                        .position(x: geometry.size.width / 2, y: geometry.size.height * 0.27)
+                        VerdictTextView(text: L10n.playVerdict)
+                            .position(x: geometry.size.width / 2,
+                                      y: throwCenter(in: geometry.size).y + 122)
                     }
-                    .position(x: geometry.size.width / 2, y: geometry.size.height * 0.36)
                     .zIndex(60)
                     .allowsHitTesting(false)
                 }
@@ -691,20 +702,7 @@ struct CenterBannerView: View {
     var body: some View {
         switch banner.style {
         case .verdict:
-            VStack(spacing: 6) {
-                if let icon = banner.icon {
-                    Image(systemName: icon)
-                        .font(.title2.weight(.bold))
-                }
-                Text(banner.text)
-                    .font(.system(.title2, design: .serif).weight(.black))
-                    .multilineTextAlignment(.center)
-            }
-            .foregroundStyle(Theme.accent)
-            .padding(.horizontal, 26)
-            .padding(.vertical, 18)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
-            .shadow(color: Theme.accent.opacity(0.35), radius: 16)
+            VerdictTextView(text: banner.text)
         case .note:
             Label(banner.text, systemImage: banner.icon ?? "bubble.left.fill")
                 .font(.subheadline.weight(.bold))
@@ -713,6 +711,49 @@ struct CenterBannerView: View {
                 .background(.ultraThinMaterial, in: Capsule())
                 .foregroundStyle(.primary)
         }
+    }
+}
+
+/// Verdicts as big arcade lettering — golden 3D text with a dark outline and
+/// extruded depth, straight on the felt with no popup behind it.
+struct VerdictTextView: View {
+    let text: String
+
+    private var styledText: Text {
+        Text(text).font(.system(size: 40, weight: .heavy, design: .rounded))
+    }
+
+    private let outlineColor = Color(red: 0.42, green: 0.24, blue: 0.05)
+    private let depthColor = Color(red: 0.35, green: 0.19, blue: 0.04)
+
+    var body: some View {
+        ZStack {
+            // Extruded depth below the letters.
+            ForEach(1..<5) { step in
+                styledText
+                    .foregroundStyle(depthColor)
+                    .offset(y: CGFloat(step) * 1.5)
+            }
+            // Dark outline all around.
+            ForEach(0..<8) { direction in
+                let angle = Double(direction) * .pi / 4
+                styledText
+                    .foregroundStyle(outlineColor)
+                    .offset(x: cos(angle) * 2.2, y: sin(angle) * 2.2)
+            }
+            // Golden face, light on top fading to deep amber.
+            styledText
+                .foregroundStyle(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 1.0, green: 0.93, blue: 0.55),
+                            Theme.accent,
+                            Color(red: 0.75, green: 0.47, blue: 0.10),
+                        ],
+                        startPoint: .top, endPoint: .bottom))
+        }
+        .multilineTextAlignment(.center)
+        .shadow(color: .black.opacity(0.45), radius: 6, y: 5)
     }
 }
 
