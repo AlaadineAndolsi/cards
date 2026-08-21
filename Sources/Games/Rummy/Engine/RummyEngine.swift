@@ -59,7 +59,7 @@ enum RummyEngine {
             guard Self.canForcePass(hand: s.players[seat].hand) else {
                 throw RummyError.cannotForcePass
             }
-            abandonRound(&s)
+            abandonRound(&s, rng: &rng)
 
         case (.declareIntent(let play), .vote(let proposer, let current)):
             guard seat == current else { throw RummyError.notYourTurn }
@@ -71,7 +71,7 @@ enum RummyEngine {
                 let next = s.nextAliveSeat(after: current)
                 if next == proposer {
                     // Everyone agreed: round abandoned, next dealer redeals.
-                    abandonRound(&s)
+                    abandonRound(&s, rng: &rng)
                 } else {
                     s.phase = .vote(proposerSeat: proposer, currentSeat: next)
                 }
@@ -217,7 +217,7 @@ enum RummyEngine {
             }
 
         case (.startNextRound, .roundEnded):
-            startNextRound(&s)
+            startNextRound(&s, rng: &rng)
 
         default:
             throw RummyError.illegalPhase
@@ -310,18 +310,20 @@ enum RummyEngine {
         s.phase = .vote(proposerSeat: firstActor, currentSeat: firstActor)
     }
 
-    private static func abandonRound(_ s: inout RummyState) {
+    private static func abandonRound(_ s: inout RummyState, rng: inout some RandomNumberGenerator) {
         for seat in s.players.indices {
             s.players[seat].roundScores.append(nil)
         }
-        resetForNewRound(&s, nextDealer: s.nextAliveSeat(after: s.dealerSeat))
+        resetForNewRound(&s, nextDealer: s.nextAliveSeat(after: s.dealerSeat), rng: &rng)
     }
 
-    static func startNextRound(_ s: inout RummyState) {
-        resetForNewRound(&s, nextDealer: s.nextAliveSeat(after: s.dealerSeat))
+    static func startNextRound(_ s: inout RummyState, rng: inout some RandomNumberGenerator) {
+        resetForNewRound(&s, nextDealer: s.nextAliveSeat(after: s.dealerSeat), rng: &rng)
     }
 
-    private static func resetForNewRound(_ s: inout RummyState, nextDealer: Int) {
+    private static func resetForNewRound(
+        _ s: inout RummyState, nextDealer: Int, rng: inout some RandomNumberGenerator
+    ) {
         for seat in s.players.indices {
             s.players[seat].hand = []
             s.players[seat].throwStack = []
@@ -335,7 +337,10 @@ enum RummyEngine {
         s.turnsCompletedThisRound = 0
         s.roundNumber += 1
         s.dealerSeat = nextDealer
+        // Fresh full deck, auto-shuffled before it reaches the next dealer —
+        // their explicit shuffles come on top, exactly like round one.
         s.drawPile = Card.fullDeck()
+        s.drawPile.fisherYatesShuffle(using: &rng)
         s.phase = .dealing(shuffles: 0)
     }
 

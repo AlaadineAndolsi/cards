@@ -188,6 +188,11 @@ struct LayDownTests {
         #expect(next.requiredLayDown == RulesConfig.default.minimumLayDown)
         // The pile is rebuilt to the full double deck every round.
         #expect(next.drawPile.count == 108)
+        #expect(Set(next.drawPile.map(\.id)).count == 108)
+        // …and auto-shuffled before it passes to the next dealer, so dealing
+        // without extra shuffles never hands out a factory-ordered deck.
+        #expect(next.drawPile.map(\.id) != Card.fullDeck().map(\.id),
+                "a fresh round's pile must be shuffled, not in factory order")
     }
 }
 
