@@ -267,6 +267,7 @@ struct ArcHandView: View {
     @State private var dragStartX: CGFloat = 0
     @State private var dragTranslation: CGSize = .zero
     @State private var draggedGroup: [Int] = []
+    @State private var didLiveReorder = false
     @State private var hoverTask: Task<Void, Never>?
 
     private let cardWidth: CGFloat = 70
@@ -370,13 +371,18 @@ struct ArcHandView: View {
                     var order = cards.map(\.id)
                     order.remove(at: current)
                     order.insert(card.id, at: target)
-                    withAnimation(.cardSpring) { viewModel.reorderHand(order) }
+                    // Live reorder only — the sort stays on unless the drag
+                    // ENDS as a deliberate reorder.
+                    didLiveReorder = true
+                    withAnimation(.cardSpring) { viewModel.handOrder = order }
                 }
             }
             .onEnded { value in
                 let translation = value.translation
                 let locked = viewModel.lockedCardIDs.contains(card.id)
                 let previewWasShown = viewModel.meldPreviewShown
+                let reordered = didLiveReorder
+                didLiveReorder = false
                 cancelHoverCountdown(hidePreview: false)
                 withAnimation(.cardSpring) {
                     draggedID = nil
@@ -417,12 +423,17 @@ struct ArcHandView: View {
                     }
                     if translation.height < -45 { return }  // near the preview: don't throw by accident
                 }
-                // Slide up = throw. Generous drop zone: any clear upward slide.
+                // Slide up = discard. Generous drop zone: any clear upward slide.
                 if translation.height < -45, viewModel.canThrow {
                     Haptics.action()
                     withAnimation(reduceMotion ? .default : .cardSpring) {
                         viewModel.apply(.throwCard(card))
                     }
+                    return
+                }
+                // The drag ended as a plain reorder: now the sort turns off.
+                if reordered {
+                    viewModel.commitManualReorder()
                 }
             }
     }

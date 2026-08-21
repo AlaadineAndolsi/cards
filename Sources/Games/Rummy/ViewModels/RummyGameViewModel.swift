@@ -751,10 +751,16 @@ final class RummyGameViewModel {
         return result
     }
 
-    /// Manual reordering takes over: it clears the active sorts.
+    /// Manual reordering takes over: it clears the active sort.
     func reorderHand(_ order: [Int]) {
         activeSort = nil
         handOrder = order
+    }
+
+    /// Only a drag that ENDS as a deliberate reorder turns the sort off —
+    /// a slide that ends as a discard or lay never touches it.
+    func commitManualReorder() {
+        activeSort = nil
     }
 
     func moveHandCard(fromOffsets: IndexSet, toOffset: Int) {
