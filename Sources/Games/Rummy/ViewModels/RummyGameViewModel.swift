@@ -601,9 +601,51 @@ final class RummyGameViewModel {
             }
             if !placed { still.append(card) }
         }
-        // Bridging may have added new run values (e.g. the ace joining
-        // Q-J) — rank mates get one more chance to attach beside them.
-        loose = attachByRank(still)
+        loose = still
+
+        // Leftover same-suit chains: gaps of two (three with a joker) still
+        // read as run material — K-J-9-7 of one suit stays a single block
+        // even without any one-gaps. Weak all-low chains (2-4) don't count.
+        var chainClaimed = Set<Int>()
+        for suit in [Suit.spades, .hearts, .clubs, .diamonds] {
+            let suited = loose.filter { $0.suit == suit }
+            guard suited.count >= 2 else { continue }
+            var values: [Int] = []
+            var cardsByValue: [Int: [Card]] = [:]
+            for card in suited {
+                guard let raw = card.rank?.rawValue else { continue }
+                let value = raw == 1 ? 14 : raw   // a loose ace reads high
+                if !values.contains(value) { values.append(value) }
+                cardsByValue[value, default: []].append(card)
+            }
+            values.sort(by: >)
+            var chain: [Int] = []
+            func flush() {
+                defer { chain = [] }
+                guard chain.count >= 2, !chain.allSatisfy({ $0 <= 4 }) else { return }
+                var run = ProtoRun(suit: suit, values: chain)
+                for value in chain {
+                    let copies = cardsByValue[value] ?? []
+                    run.members[value] = copies.first
+                    if copies.count > 1 {
+                        run.attachments[value, default: []]
+                            .append(contentsOf: copies.dropFirst())
+                    }
+                    for copy in copies { chainClaimed.insert(copy.id) }
+                }
+                runs.append(run)
+            }
+            for value in values {
+                if let last = chain.last, last - value > maxEndGap { flush() }
+                chain.append(value)
+            }
+            flush()
+        }
+        loose.removeAll { chainClaimed.contains($0.id) }
+
+        // Bridging and chaining may have added new run values — rank mates
+        // get one more chance to attach beside them.
+        loose = attachByRank(loose)
 
         // Strong section: combos by top card, descending inside; a mate
         // prints before its anchor when the run continues below it, after
