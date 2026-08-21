@@ -426,9 +426,13 @@ struct GameTableView: View {
     // MARK: Bottom: chips row, hint, arc hand
 
     private var bottomArea: some View {
-        VStack(spacing: 5) {
+        VStack(spacing: 4) {
+            // The totals line sits a little higher, above a reserved strip
+            // where errors and hints appear — between the totals and the
+            // cards, without pushing the totals around.
             statusChips
-            hintArea
+            ZStack { hintArea }
+                .frame(height: 34)
             ArcHandView(viewModel: viewModel, namespace: cardSpace, reduceMotion: reduceMotion)
         }
         .padding(.bottom, 2)
