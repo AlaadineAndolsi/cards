@@ -6,6 +6,9 @@ import SwiftUI
 /// top/bottom exactly like the source art. Crisp at every size.
 struct CardView: View {
     let card: Card
+    /// Adds an upright index in the top-right corner — used for fanned hands
+    /// where only a card's right side stays visible.
+    var extraTopRightIndex = false
 
     static let designSize = CGSize(width: 140, height: 190)
     static let aspectRatio: CGFloat = 140.0 / 190.0
@@ -14,7 +17,7 @@ struct CardView: View {
         Canvas(rendersAsynchronously: false) { context, size in
             let scale = min(size.width / Self.designSize.width, size.height / Self.designSize.height)
             context.scaleBy(x: scale, y: scale)
-            CardRenderer.drawFront(card: card, in: &context)
+            CardRenderer.drawFront(card: card, in: &context, extraTopRightIndex: extraTopRightIndex)
         }
         .aspectRatio(Self.aspectRatio, contentMode: .fit)
         .accessibilityLabel(accessibilityName)
@@ -65,13 +68,24 @@ enum CardRenderer {
                 CGPoint(x: 49, y: 72), CGPoint(x: 89, y: 72)], []),
     ]
 
-    static func drawFront(card: Card, in context: inout GraphicsContext) {
+    static func drawFront(card: Card, in context: inout GraphicsContext, extraTopRightIndex: Bool = false) {
         drawFrame(in: &context)
         if card.isJoker {
             drawJoker(in: &context)
             return
         }
         guard let rank = card.rank, let suit = card.suit else { return }
+        if extraTopRightIndex {
+            let ink = suit.isRed ? red : Color.black
+            var corner = context
+            corner.translateBy(x: 100, y: 0)
+            if let glyph = CardArt.rankGlyphs[rank] {
+                fill(glyph, with: .color(ink), in: &corner)
+            }
+            if let large = CardArt.largeSuit[suit] {
+                fill(large, with: .color(ink), in: &corner)
+            }
+        }
         // Top-left corner content, then the same rotated 180° about the center.
         drawHalf(rank: rank, suit: suit, in: &context)
         var mirrored = context

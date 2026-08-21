@@ -258,7 +258,7 @@ struct ArcHandView: View {
                         + (selected ? -22 : 0)
                         + (isDragged ? dragTranslation.height : 0)
 
-                    CardView(card: card)
+                    CardView(card: card, extraTopRightIndex: true)
                         .matchedGeometryEffect(id: card.id, in: namespace)
                         .frame(width: cardWidth)
                         .shadow(color: .black.opacity(0.4), radius: 3, x: -2, y: 2)
