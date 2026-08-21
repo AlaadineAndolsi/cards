@@ -172,8 +172,7 @@ final class RummyGameViewModel {
             lockSelection()
         } else {
             Haptics.warning()
-            showBanner("Selection isn't a valid series", style: .warn,
-                       icon: "lock.slash", duration: 1.8)
+            showNotice("Selection isn't a valid series", warn: true, duration: 1.8)
         }
     }
 
@@ -302,8 +301,7 @@ final class RummyGameViewModel {
             state = try RummyEngine.apply(action, by: humanSeat, to: state, rng: &rng)
             if state.players[humanSeat].penaltiesThisRound > penaltiesBefore {
                 Haptics.warning()
-                showBanner("+10 — that card plays on a meld, it comes back",
-                           style: .warn, icon: "arrow.uturn.down")
+                showNotice("+10 — that card plays on a meld, it comes back", warn: true)
             }
             lastError = nil
             selectedCardIDs = []
@@ -556,6 +554,27 @@ final class RummyGameViewModel {
         }
     }
 
+    /// Every tip, reminder, and warning for the human lives in the strip
+    /// between the totals and the cards — never in the center of the table.
+    /// The center is reserved for table events (votes, verdicts, closings).
+    struct StripNotice: Equatable {
+        let text: String
+        let warn: Bool
+    }
+    private(set) var stripNotice: StripNotice?
+    private var noticeTask: Task<Void, Never>?
+
+    func showNotice(_ text: String, warn: Bool = false, duration: Double = 2.6) {
+        noticeTask?.cancel()
+        let notice = StripNotice(text: text, warn: warn)
+        stripNotice = notice
+        noticeTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(duration))
+            guard !Task.isCancelled else { return }
+            if self?.stripNotice == notice { self?.stripNotice = nil }
+        }
+    }
+
     /// Nudges the human when their turn sits idle too long.
     private func scheduleTurnNudge() {
         nudgeTask?.cancel()
@@ -572,8 +591,8 @@ final class RummyGameViewModel {
                 default:
                     "Throw a card"
                 }
-                self.showBanner(text, style: .warn, icon: "clock.fill", duration: 2.6)
-                try? await Task.sleep(for: .seconds(10))
+                self.showNotice(text, duration: 3)
+                try? await Task.sleep(for: .seconds(11))
             }
         }
     }

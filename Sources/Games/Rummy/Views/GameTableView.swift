@@ -433,6 +433,8 @@ struct GameTableView: View {
             statusChips
             ZStack { hintArea }
                 .frame(height: 34)
+                .animation(.cardSpring, value: viewModel.stripNotice)
+                .animation(.cardSpring, value: viewModel.lastError)
             ArcHandView(viewModel: viewModel, namespace: cardSpace, reduceMotion: reduceMotion)
         }
         .padding(.bottom, 2)
@@ -494,6 +496,14 @@ struct GameTableView: View {
                         withAnimation { viewModel.lastError = nil }
                     }
                 }
+        } else if let notice = viewModel.stripNotice {
+            Text(notice.text)
+                .font(.footnote.weight(.semibold))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 6)
+                .background(.ultraThinMaterial, in: Capsule())
+                .foregroundStyle(notice.warn ? .red : Theme.accent)
+                .transition(.scale(scale: 0.8).combined(with: .opacity))
         } else if let hint = viewModel.handHint {
             Text(hint.text)
                 .font(.footnote.weight(.semibold))
