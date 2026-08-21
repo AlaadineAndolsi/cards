@@ -198,7 +198,7 @@ final class RummyGameViewModel {
         for meld in partition.melds {
             // Locked (and later laid) series always read smallest → biggest,
             // the biggest card on the right; the ace sits left in A-2-3.
-            let ordered = ascendingEntries(meld)
+            let ordered = seriesEntries(meld)
             lockedSeries.append(ordered.map(\.card.id))
             lockedMelds.append(Meld(entries: ordered))
         }
@@ -215,13 +215,13 @@ final class RummyGameViewModel {
             return
         }
         Haptics.action()
-        apply(.layDown(melds: partition.melds.map { Meld(entries: ascendingEntries($0)) }))
+        apply(.layDown(melds: partition.melds.map { Meld(entries: seriesEntries($0)) }))
     }
 
-    /// Locked and laid series always read smallest → biggest, biggest at the
-    /// right. In sets the minority color sits at the right ("different color
-    /// at right"); with two red and two black, the black cards sit right.
-    private func ascendingEntries(_ meld: Meld) -> [MeldEntry] {
+    /// Locked and laid series always read biggest → smallest, biggest at the
+    /// LEFT. In sets the minority ("different") color sits at the left; with
+    /// two red and two black, the black cards sit left.
+    private func seriesEntries(_ meld: Meld) -> [MeldEntry] {
         let lowRun = meld.entries.contains { $0.asRank == .two }
         func rankKey(_ entry: MeldEntry) -> Int {
             entry.asRank == .ace ? (lowRun ? 1 : 14) : entry.asRank.rawValue
@@ -230,12 +230,12 @@ final class RummyGameViewModel {
         let blacks = meld.entries.count - reds
         func colorKey(_ entry: MeldEntry) -> Int {
             let isRed = entry.asSuit.isRed
-            if reds == blacks { return isRed ? 0 : 1 }   // 2–2: black at right
-            return isRed == (reds > blacks) ? 0 : 1      // minority color right
+            if reds == blacks { return isRed ? 1 : 0 }   // 2–2: black at left
+            return isRed == (reds > blacks) ? 1 : 0      // minority color left
         }
         return meld.entries.sorted {
-            (rankKey($0), colorKey($0), suitIndex($0.card))
-                < (rankKey($1), colorKey($1), suitIndex($1.card))
+            (rankKey($1), colorKey($0), suitIndex($0.card))
+                < (rankKey($0), colorKey($1), suitIndex($1.card))
         }
     }
 
