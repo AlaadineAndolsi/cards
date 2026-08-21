@@ -466,20 +466,24 @@ final class RummyGameViewModel {
         }
 
         // Same-rank mates attach beside their run card.
-        var loose: [Card] = []
-        for card in pending {
-            guard let raw = card.rank?.rawValue else { continue }
-            let candidates = raw == 1 ? [1, 14] : [raw]
-            var placed = false
-            for index in runs.indices where !placed {
-                for value in candidates where runs[index].values.contains(value) {
-                    runs[index].attachments[value, default: []].append(card)
-                    placed = true
-                    break
+        func attachByRank(_ cards: [Card]) -> [Card] {
+            var loose: [Card] = []
+            for card in cards {
+                guard let raw = card.rank?.rawValue else { continue }
+                let candidates = raw == 1 ? [1, 14] : [raw]
+                var placed = false
+                for index in runs.indices where !placed {
+                    for value in candidates where runs[index].values.contains(value) {
+                        runs[index].attachments[value, default: []].append(card)
+                        placed = true
+                        break
+                    }
                 }
+                if !placed { loose.append(card) }
             }
-            if !placed { loose.append(card) }
+            return loose
         }
+        var loose = attachByRank(pending)
 
         // A two-gap at either end of a run always chains (one missing card);
         // with a joker in hand even a three-gap does.
@@ -510,7 +514,9 @@ final class RummyGameViewModel {
             }
             if !placed { still.append(card) }
         }
-        loose = still
+        // Bridging may have added new run values (e.g. the ace joining
+        // Q-J) — rank mates get one more chance to attach beside them.
+        loose = attachByRank(still)
 
         // Strong section: combos by top card, descending inside; a mate
         // prints before its anchor when the run continues below it, after
