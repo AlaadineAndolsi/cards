@@ -207,8 +207,25 @@ struct ThrowTakeTests {
     }
 
     @Test func preLayDownTakeWithNoQualifyingLayDownEndsRoundWithPenalty() throws {
-        // Generic hand + taken card cannot reach 61 → instant 100 / 0 / 0 / 0.
-        let (s, _) = takeSetup(turnsCompleted: 4, laidDown: false)
+        // A meldless junk hand (no pairs, no near-runs) cannot reach 61 →
+        // taking the throw ends the round instantly: 100 for the taker, 0 rest.
+        let junk = [
+            TestCards.card(.two, .hearts), TestCards.card(.six, .hearts), TestCards.card(.ten, .hearts),
+            TestCards.card(.ace, .hearts),
+            TestCards.card(.three, .diamonds), TestCards.card(.seven, .diamonds), TestCards.card(.jack, .diamonds),
+            TestCards.card(.four, .clubs), TestCards.card(.eight, .clubs), TestCards.card(.queen, .clubs),
+            TestCards.card(.five, .spades), TestCards.card(.nine, .spades), TestCards.card(.king, .spades),
+            TestCards.card(.seven, .spades),
+        ]
+        let prevThrown = [TestCards.card(.nine, .spades, copy: 1)]
+        var s = StateBuilder.turn(
+            seat: 1, stage: .awaitingDraw,
+            hands: [[], junk, [], []],
+            throwStacks: [prevThrown, [], [], []],
+            turnsCompleted: 4)
+        s.players[0].hand = Array(Card.fullDeck().filter { card in
+            !junk.contains(card) && !prevThrown.contains(card)
+        }.prefix(14))
         let after = try StateBuilder.apply(.takeThrow, by: 1, to: s)
         guard case .roundEnded(let result) = after.phase else {
             Issue.record("expected roundEnded, got \(after.phase)")
