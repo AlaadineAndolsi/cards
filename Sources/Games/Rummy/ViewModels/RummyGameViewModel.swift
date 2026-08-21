@@ -183,11 +183,10 @@ final class RummyGameViewModel {
         }
     }
 
-    /// Hover-to-append is only meaningful once the human can append at all —
-    /// confirmed lay-down, or laid this turn with the required count met.
+    /// Placing into table melds is always possible on your throw step — the
+    /// count judgment happens at the discard, not here.
     var canAppendToTable: Bool {
         guard isHumanTurn, case .awaitingThrow = humanStage,
-              RummyEngine.canTouchMelds(state, seat: humanSeat),
               !state.tableMelds.isEmpty else { return false }
         return true
     }

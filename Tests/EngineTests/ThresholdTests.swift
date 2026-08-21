@@ -118,8 +118,8 @@ struct LayDownTests {
         #expect(result.deltas[0] == 100)
     }
 
-    @Test func appendsUnlockOnceThePendingLayDownMeetsTheCount() throws {
-        // Laid 60/60 this turn (unconfirmed): melds already open for appends.
+    @Test func appendsAreAlwaysAllowedAndCountTowardThePending() throws {
+        // Laid 60/60 this turn (unconfirmed): appending works and adds value.
         var config = RulesConfig.default
         config.minimumLayDown = 60
         let queenOfKings = TestCards.card(.king, .diamonds)
@@ -132,16 +132,29 @@ struct LayDownTests {
                         meldID: kingsMeldID),
             by: 0, to: laid)
         #expect(laid.tableMelds[0].meld.entries.count == 4)
+        #expect(laid.players[0].pendingLayDownValue == 70)
 
-        // But short of the count, melds stay locked.
-        let short = turnState(hand: handWith(smallRun + [queenOfKings], filler: 8), config: config)
-        let shortLaid = try StateBuilder.apply(.layDown(melds: [meldOf(smallRun)]), by: 0, to: short)
-        #expect(throws: RummyError.notLaidDownYet) {
-            try StateBuilder.apply(
-                .appendCard(MeldEntry(card: queenOfKings, asRank: .king, asSuit: .diamonds),
-                            meldID: shortLaid.tableMelds[0].id),
-                by: 0, to: shortLaid)
+        // Short of the count the append still works — placement is always
+        // possible; the judgment waits for the discard.
+        let fiveOfHearts = TestCards.card(.five, .hearts)
+        let short = turnState(hand: handWith(smallRun + [fiveOfHearts], filler: 8), config: config)
+        var shortLaid = try StateBuilder.apply(.layDown(melds: [meldOf(smallRun)]), by: 0, to: short)
+        let smallPending = shortLaid.players[0].pendingLayDownValue!
+        shortLaid = try StateBuilder.apply(
+            .appendCard(MeldEntry(card: fiveOfHearts, asRank: .five, asSuit: .hearts),
+                        meldID: shortLaid.tableMelds[0].id),
+            by: 0, to: shortLaid)
+        #expect(shortLaid.players[0].pendingLayDownValue == smallPending + 5)
+        // And the discard judges it: still short → +100, round stops.
+        let safeThrow = shortLaid.players[0].hand.first {
+            !RummyEngine.throwPenalized($0, tableMelds: shortLaid.tableMelds)
+        }!
+        let thrown = try StateBuilder.apply(.throwCard(safeThrow), by: 0, to: shortLaid)
+        guard case .roundEnded(let result) = thrown.phase else {
+            Issue.record("expected the round to stop, got \(thrown.phase)")
+            return
         }
+        #expect(result.deltas[0] == 100)
     }
 
     @Test func subsequentLayDownsHaveNoThreshold() throws {
@@ -206,14 +219,51 @@ struct AppendAndJokerTests {
         #expect(!after.players[0].hand.contains(seven))
     }
 
-    @Test func appendBeforeOwnLayDownIsRejected() {
+    @Test func appendBeforeOwnLayDownPendsAndIsJudgedAtTheThrow() throws {
+        // Placement into melds is always possible; the appended value pends
+        // and the discard judges it — short of the count means +100.
         let seven = TestCards.card(.seven, .hearts)
         let meldID = UUID()
-        let s = state(hand: [seven, TestCards.card(.nine, .clubs)], laidDown: false, melds: [tableWithRun(id: meldID)])
-        #expect(throws: RummyError.notLaidDownYet) {
-            try StateBuilder.apply(
-                .appendCard(MeldEntry(card: seven, asRank: .seven, asSuit: .hearts), meldID: meldID), by: 0, to: s)
+        let s = state(hand: [seven, TestCards.card(.nine, .clubs), TestCards.card(.queen, .spades)],
+                      laidDown: false, melds: [tableWithRun(id: meldID)])
+        let appended = try StateBuilder.apply(
+            .appendCard(MeldEntry(card: seven, asRank: .seven, asSuit: .hearts), meldID: meldID), by: 0, to: s)
+        #expect(appended.tableMelds[0].meld.entries.count == 4)
+        #expect(appended.players[0].pendingLayDownValue == 7)
+        let thrown = try StateBuilder.apply(
+            .throwCard(TestCards.card(.nine, .clubs)), by: 0, to: appended)
+        guard case .roundEnded(let result) = thrown.phase else {
+            Issue.record("expected the round to stop, got \(thrown.phase)")
+            return
         }
+        #expect(result.deltas[0] == 100)
+    }
+
+    @Test func underCountFullCloseViaAppendsIsAllowed() throws {
+        // The reported trap: everything left fits into table melds, but the
+        // pending total is under the count. Going out never needs the count —
+        // append it all, throw the last card, close clean at 0.
+        let seven = TestCards.card(.seven, .hearts)
+        let eight = TestCards.card(.eight, .hearts)
+        let three = TestCards.card(.three, .hearts)
+        let last = TestCards.card(.nine, .clubs)
+        let meldID = UUID()
+        var s = state(hand: [seven, eight, three, last], laidDown: false, melds: [tableWithRun(id: meldID)])
+        s = try StateBuilder.apply(
+            .appendCard(MeldEntry(card: seven, asRank: .seven, asSuit: .hearts), meldID: meldID), by: 0, to: s)
+        s = try StateBuilder.apply(
+            .appendCard(MeldEntry(card: eight, asRank: .eight, asSuit: .hearts), meldID: meldID), by: 0, to: s)
+        s = try StateBuilder.apply(
+            .appendCard(MeldEntry(card: three, asRank: .three, asSuit: .hearts), meldID: meldID), by: 0, to: s)
+        #expect(s.players[0].pendingLayDownValue == 18, "7+8+3 pended, well under 61")
+        let thrown = try StateBuilder.apply(.throwCard(last), by: 0, to: s)
+        guard case .roundEnded(let result) = thrown.phase else {
+            Issue.record("expected a clean close, got \(thrown.phase)")
+            return
+        }
+        #expect(result.closerSeat == 0)
+        #expect(result.deltas[0] == 0)
+        #expect(thrown.tableMelds[0].meld.entries.count == 6)
     }
 
     @Test func runOnTheTableGrowsPastFiveByAppending() throws {

@@ -122,7 +122,6 @@ enum RummyEngine {
 
         case (.appendCard(let entry, let meldID), .turn(let turnSeat, .awaitingThrow(let drew, let pendingJoker))):
             guard seat == turnSeat else { throw RummyError.notYourTurn }
-            guard Self.canTouchMelds(s, seat: seat) else { throw RummyError.notLaidDownYet }
             guard let index = s.tableMelds.firstIndex(where: { $0.id == meldID }) else {
                 throw RummyError.meldNotFound
             }
@@ -136,12 +135,20 @@ enum RummyEngine {
             }
             s.tableMelds[index].meld = grown
             s.players[seat].hand.remove(at: handIndex)
+            // Table touch is always allowed — the judgment comes at the
+            // throw. Before the first confirmed lay-down every appended card
+            // counts toward the pending total (closing needs no count at all).
+            if !s.players[seat].hasLaidDown {
+                s.players[seat].pendingLayDownValue =
+                    (s.players[seat].pendingLayDownValue ?? 0) + Self.appendedEntryValue(entry, grown: grown)
+            }
             let stillPending = pendingJoker == entry.card ? nil : pendingJoker
             s.phase = .turn(seat: seat, .awaitingThrow(drew: drew, pendingJoker: stillPending))
 
         case (.swapJoker(let meldID, let realCard), .turn(let turnSeat, .awaitingThrow(let drew, let pendingJoker))):
             guard seat == turnSeat else { throw RummyError.notYourTurn }
-            guard Self.canTouchMelds(s, seat: seat) else { throw RummyError.notLaidDownYet }
+            // Value-neutral table touch: allowed for everyone — the freed
+            // joker must be replayed this turn, and the throw judges the rest.
             guard pendingJoker == nil else { throw RummyError.jokerPending }
             guard let meldIndex = s.tableMelds.firstIndex(where: { $0.id == meldID }) else {
                 throw RummyError.meldNotFound
@@ -220,11 +227,19 @@ enum RummyEngine {
 
     // MARK: - Helpers
 
-    /// Melds open up once the player's lay-down is confirmed — or already
-    /// laid this turn with the required count met (the discard just seals it).
-    static func canTouchMelds(_ s: RummyState, seat: Int) -> Bool {
-        s.players[seat].hasLaidDown
-            || (s.players[seat].pendingLayDownValue ?? 0) >= s.requiredLayDown
+    /// What an appended entry adds to the pending count: 2–10 face value,
+    /// courts 10, ace 1 only when it lands at the low end of a run.
+    private static func appendedEntryValue(_ entry: MeldEntry, grown: Meld) -> Int {
+        switch entry.asRank {
+        case .ace:
+            if let index = grown.entries.firstIndex(where: { $0.card.id == entry.card.id }),
+               index == 0, grown.entries.count > 1, grown.entries[1].asRank == .two {
+                return 1
+            }
+            return 10
+        case .jack, .queen, .king: return 10
+        default: return entry.asRank.rawValue
+        }
     }
 
     /// A throw is penalized when the card is a joker or fits any table meld.
