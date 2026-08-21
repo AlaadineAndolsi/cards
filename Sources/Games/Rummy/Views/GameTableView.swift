@@ -67,8 +67,10 @@ struct GameTableView: View {
                             .allowsHitTesting(false)
                             .zIndex(50)
                     } else {
+                        // Every note lands in the same spot: above the throw
+                        // area, below the top player's lays.
                         CenterBannerView(banner: banner)
-                            .position(x: geometry.size.width / 2, y: geometry.size.height * 0.40)
+                            .position(x: geometry.size.width / 2, y: geometry.size.height * 0.27)
                             .transition(.scale(scale: 0.7).combined(with: .opacity))
                             .allowsHitTesting(false)
                             .zIndex(50)
