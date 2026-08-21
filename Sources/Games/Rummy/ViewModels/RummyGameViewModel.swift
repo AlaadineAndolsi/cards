@@ -432,7 +432,18 @@ final class RummyGameViewModel {
                 if chains { runCards.append(card) } else { looseCards.append(card) }
             }
         }
-        return jokers + suitGroupedOrder(runCards) + numberClusters(looseCards)
+        // Loose cards that fit somebody's lays on the table go to the far
+        // right — ready to slide onto a meld.
+        let appendable = looseCards.filter {
+            RummyEngine.throwPenalized($0, tableMelds: state.tableMelds)
+        }
+        let loose = looseCards.filter { card in
+            !appendable.contains { $0.id == card.id }
+        }
+        let appendableOrdered = appendable.sorted {
+            (sortRankKey($1), suitIndex($0), $0.id) < (sortRankKey($0), suitIndex($1), $1.id)
+        }
+        return jokers + suitGroupedOrder(runCards) + numberClusters(loose) + appendableOrdered
     }
 
     /// The number side of the smart sort: same-and-adjacent ranks cluster
