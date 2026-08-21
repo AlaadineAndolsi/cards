@@ -216,7 +216,9 @@ struct AppendAndJokerTests {
         }
     }
 
-    @Test func appendThatWouldGrowMeldPastFiveIsRejected() {
+    @Test func runOnTheTableGrowsPastFiveByAppending() throws {
+        // The 5-card cap applies to laying a series; a run already on the
+        // table keeps growing (up to the full suit).
         let three = TestCards.card(.three, .hearts)
         let meldID = UUID()
         let five = tableWithRun(id: meldID, extraEntries: [
@@ -224,10 +226,10 @@ struct AppendAndJokerTests {
             MeldEntry(card: TestCards.card(.eight, .hearts), asRank: .eight, asSuit: .hearts),
         ])
         let s = state(hand: [three, TestCards.card(.nine, .clubs)], melds: [five])
-        #expect(throws: RummyError.meldFull) {
-            try StateBuilder.apply(
-                .appendCard(MeldEntry(card: three, asRank: .three, asSuit: .hearts), meldID: meldID), by: 0, to: s)
-        }
+        let after = try StateBuilder.apply(
+            .appendCard(MeldEntry(card: three, asRank: .three, asSuit: .hearts), meldID: meldID), by: 0, to: s)
+        #expect(after.tableMelds[0].meld.entries.count == 6)
+        #expect(!after.players[0].hand.contains(three))
     }
 
     @Test func appendThatDoesNotFitIsRejected() {

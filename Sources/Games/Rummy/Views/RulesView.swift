@@ -24,7 +24,7 @@ struct RulesView: View {
                     ])
                     section("Your turn", "hand.tap.fill", [
                         "Purchase from the stock, or pick up the previous player's discard (once unlocked).",
-                        "Melds: runs of 3–5 consecutive cards of one suit, or sets of 3–4 same-rank cards of distinct suits.",
+                        "Melds: runs of 3–5 consecutive cards of one suit, or sets of 3–4 same-rank cards of distinct suits. Once on the table a run keeps growing by appends — up to the full suit.",
                         "The ace plays low in A-2-3 and high in Q-K-A — never around the corner.",
                         "Jokers substitute any card (at most two per meld). Once you have laid down, you can swap a table joker for its real card — the joker must be replayed the same turn.",
                         "End your turn by discarding one card.",

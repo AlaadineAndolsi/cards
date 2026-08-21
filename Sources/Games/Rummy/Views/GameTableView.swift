@@ -634,7 +634,7 @@ struct GameTableView: View {
         case .throwTakeLocked: "Picking up the discard unlocks after the first cycle"
         case .mustLayDownWithTake: "You picked up the discard — lay down a meld first"
         case .layDownLocked: "No lay-downs until the turn returns to the dealer"
-        case .meldFull: "Melds hold at most 5 cards"
+        case .meldFull: "This series can't grow any further"
         case .cannotAppendHere: "Doesn't fit this meld"
         case .jokerPending: "Play the swapped joker first"
         case .mustKeepACardToThrow: "Keep one card to discard"

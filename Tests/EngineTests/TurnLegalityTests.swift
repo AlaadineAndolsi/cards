@@ -379,4 +379,46 @@ struct WastedThrowTests {
         #expect(after.players[1].hand.count == 1)
         #expect(after.players[1].penaltiesThisRound == 0)
     }
+
+    @Test func cardExtendingAFullFiveRunIsStillPenalized() throws {
+        // The reported table: 7♦-8♦-9♦-🃏(10♦)-🃏(J♦), five cards. The 6♦
+        // goes under the 7♦ — runs keep growing past five — so throwing it
+        // is a wasted throw and bounces.
+        let meld = Meld(entries: [
+            TestCards.entry(.seven, .diamonds),
+            TestCards.entry(.eight, .diamonds),
+            TestCards.entry(.nine, .diamonds),
+            TestCards.jokerEntry(as: .ten, .diamonds, index: 0),
+            TestCards.jokerEntry(as: .jack, .diamonds, index: 1),
+        ])
+        let hand = [TestCards.card(.six, .diamonds), TestCards.card(.two, .hearts)]
+        let used = Set((hand + meld.cards).map(\.id))
+        let s = StateBuilder.turn(
+            seat: 1, stage: .awaitingThrow(drew: .pile, pendingJoker: nil),
+            hands: [distinctCards(5, excluding: used), hand, [], []],
+            laidDown: [false, true, false, false],
+            turnsCompleted: 8,
+            tableMelds: [TableMeld(id: UUID(), ownerSeat: 3, meld: meld)])
+        #expect(RummyEngine.throwPenalized(TestCards.card(.six, .diamonds), tableMelds: s.tableMelds))
+        let after = try StateBuilder.apply(.throwCard(TestCards.card(.six, .diamonds)), by: 1, to: s)
+        #expect(after.players[1].hand.count == 2, "the 6♦ comes back")
+        #expect(after.players[1].penaltiesThisRound == 10)
+        // And the 6♦ can actually be appended under the 7♦.
+        let grown = try StateBuilder.apply(
+            .appendCard(TestCards.entry(.six, .diamonds), meldID: s.tableMelds[0].id), by: 1, to: s)
+        #expect(grown.tableMelds[0].meld.entries.count == 6)
+    }
+
+    @Test func layingASixCardRunIsStillRejected() {
+        // Growth applies on the table only; a laid series stays capped at 5.
+        let run = TestCards.run(.hearts, .four, .five, .six, .seven, .eight, .nine)
+        let hand = run.cards + [TestCards.card(.two, .spades)]
+        let s = StateBuilder.turn(
+            seat: 1, stage: .awaitingThrow(drew: .pile, pendingJoker: nil),
+            hands: [[], hand, [], []],
+            turnsCompleted: 8)
+        #expect(throws: RummyError.invalidMeld(.invalidSize)) {
+            try StateBuilder.apply(.layDown(melds: [run]), by: 1, to: s)
+        }
+    }
 }

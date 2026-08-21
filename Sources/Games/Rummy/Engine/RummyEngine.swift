@@ -126,7 +126,7 @@ enum RummyEngine {
             guard let index = s.tableMelds.firstIndex(where: { $0.id == meldID }) else {
                 throw RummyError.meldNotFound
             }
-            guard s.tableMelds[index].meld.entries.count < Meld.maxSize else { throw RummyError.meldFull }
+            guard s.tableMelds[index].meld.entries.count < Meld.maxRunSize else { throw RummyError.meldFull }
             guard let handIndex = s.players[seat].hand.firstIndex(of: entry.card) else {
                 throw RummyError.cardNotInHand
             }

@@ -340,7 +340,7 @@ final class RummyGameViewModel {
     /// The melds this card could legally extend right now.
     func fittingMelds(for card: Card) -> [UUID] {
         state.tableMelds.compactMap { tableMeld in
-            guard tableMeld.meld.entries.count < Meld.maxSize else { return nil }
+            guard tableMeld.meld.entries.count < Meld.maxRunSize else { return nil }
             let entry: MeldEntry?
             if card.isJoker {
                 entry = tableMeld.meld.jokerEntryToExtend(joker: card)

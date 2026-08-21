@@ -23,13 +23,18 @@ struct Meld: Codable, Hashable, Sendable {
     enum Kind: Sendable { case run, set }
 
     static let minSize = 3
+    /// Largest series that may be LAID from hand in one piece.
     static let maxSize = 5
     static let maxSetSize = 4
+    /// A run already on the table keeps growing, up to the full suit.
+    static let maxRunSize = 13
 
     /// Validates structure and returns whether this is a run or a set.
+    /// `runLimit` is the size cap: laying uses the default 5, growth on the
+    /// table passes `maxRunSize` (sets stay capped by the set branch).
     @discardableResult
-    func validate() throws(MeldError) -> Kind {
-        guard entries.count >= Self.minSize, entries.count <= Self.maxSize else {
+    func validate(runLimit: Int = Meld.maxSize) throws(MeldError) -> Kind {
+        guard entries.count >= Self.minSize, entries.count <= runLimit else {
             throw MeldError.invalidSize
         }
         guard Set(entries.map(\.card.id)).count == entries.count else {
@@ -94,7 +99,7 @@ struct Meld: Codable, Hashable, Sendable {
 
     /// A face a joker could adopt to legally extend this meld, or nil.
     func jokerEntryToExtend(joker: Card) -> MeldEntry? {
-        guard entries.count < Self.maxSize, let kind = try? validate() else { return nil }
+        guard let kind = try? validate(runLimit: Self.maxRunSize) else { return nil }
         switch kind {
         case .run:
             let suit = entries[0].asSuit
@@ -119,13 +124,13 @@ struct Meld: Codable, Hashable, Sendable {
     }
 
     /// Tries the entry at every position; returns the first arrangement that
-    /// validates, or nil if the card cannot legally join this meld.
+    /// validates, or nil if the card cannot legally join this meld. Growth
+    /// on the table: runs may exceed the lay cap, sets stay at 4.
     func inserting(_ entry: MeldEntry) -> Meld? {
-        guard entries.count < Self.maxSize else { return nil }
         for position in 0...entries.count {
             var candidate = self
             candidate.entries.insert(entry, at: position)
-            if (try? candidate.validate()) != nil { return candidate }
+            if (try? candidate.validate(runLimit: Self.maxRunSize)) != nil { return candidate }
         }
         return nil
     }
