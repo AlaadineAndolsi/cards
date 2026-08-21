@@ -5,6 +5,7 @@ struct DealControlsView: View {
     let shuffles: Int
     @Binding var shufflePulse: Int
     let onAction: (RummyAction) -> Void
+    @State private var showPatternInfo = false
 
     var body: some View {
         VStack {
@@ -27,11 +28,31 @@ struct DealControlsView: View {
                     }
                     .symbolEffect(.bounce, value: shufflePulse)
                     VStack(spacing: 2) {
-                        Text(L10n.dealPattern)
-                            .font(.caption.weight(.semibold))
+                        HStack(spacing: 4) {
+                            Text(L10n.dealPattern)
+                                .font(.caption.weight(.semibold))
+                            Button {
+                                withAnimation(.cardSpring) { showPatternInfo.toggle() }
+                            } label: {
+                                Image(systemName: "info.circle")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
                         Text("cards per pass — +N goes to the dealer at the end")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
+                        if showPatternInfo {
+                            Text(L10n.dealPatternInfo)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                                .padding(8)
+                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                                .padding(.top, 4)
+                                .transition(.scale(scale: 0.9).combined(with: .opacity))
+                        }
                     }
                     let patterns = DealPattern.allCases
                     VStack(spacing: 6) {

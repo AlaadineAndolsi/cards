@@ -21,6 +21,7 @@ enum L10n {
     static let settingsNote = "Changes apply from the next new game. A game in progress keeps the values it started with."
     static let shuffle = "Shuffle"
     static let dealPattern = "Choose a deal pattern"
+    static let dealPatternInfo = "The pattern only changes the dealing rhythm — which cards of the already-shuffled deck land in which hand. Same shuffle, different pattern: different hands. The shuffle is truly random, so no pattern is statistically luckier than another — it's a traditional ritual choice, like cutting the deck."
     static let play = "Play"
     static let proposePass = "Redeal"
     static let forcePass = "Force a redeal"

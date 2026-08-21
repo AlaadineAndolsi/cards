@@ -250,7 +250,8 @@ struct GameTableView: View {
                             handCount: viewModel.dealtCounts?[offset]
                                 ?? state.players[seatIndex].hand.count,
                             isDealer: state.dealerSeat == seatIndex,
-                            isActive: activeSeat == seatIndex)
+                            isActive: activeSeat == seatIndex,
+                            mood: viewModel.botMood(seat: seatIndex))
                     }
                 }
                 .position(avatarAnchor(offset, in: size))

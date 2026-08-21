@@ -7,6 +7,8 @@ struct SeatView: View {
     let handCount: Int
     let isDealer: Bool
     let isActive: Bool
+    /// Tilt/confidence cue; neutral (or nil) renders nothing.
+    var mood: BotMood? = nil
 
     var body: some View {
         VStack(spacing: 2) {
@@ -32,9 +34,16 @@ struct SeatView: View {
                         .offset(x: 4, y: -3)
                 }
             }
-            Text(player.name)
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(.white)
+            HStack(spacing: 2) {
+                Text(player.name)
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.white)
+                if let mood, mood != .neutral {
+                    Text(mood == .annoyed ? "😤" : "😎")
+                        .font(.system(size: 8))
+                        .transition(.scale.combined(with: .opacity))
+                }
+            }
             HStack(spacing: 3) {
                 Text("\(player.totalScore)")
                     .font(.system(size: 8, weight: .bold, design: .rounded))

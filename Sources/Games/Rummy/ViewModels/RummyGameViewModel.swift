@@ -1268,18 +1268,35 @@ final class RummyGameViewModel {
                 while self.isDealAnimating, !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(0.2))
                 }
-                let pause = self.pauseForNextBotAction()
-                try? await Task.sleep(for: .seconds(pause))
-                guard !Task.isCancelled else { return }
-                let view = PublicGameView(state: self.state, seat: seat)
+                // Decide first, then "think" for a duration matching the
+                // decision's weight — a snap throw is instant, a big lay-down
+                // gets a beat.
+                let snapshot = self.state
+                let view = PublicGameView(state: snapshot, seat: seat)
                 var rng = SystemRandomNumberGenerator()
                 let action = bot.decide(view, rng: &rng)
+                let pause = self.pauseForNextBotAction(action: action, mind: view.mind)
+                try? await Task.sleep(for: .seconds(pause))
+                guard !Task.isCancelled else { return }
+                // If anything moved the state during the pause, the decision
+                // is stale — re-decide instead of applying it blindly.
+                guard self.state == snapshot else { continue }
                 #if DEBUG
                 print("RUMMY bot \(seat) apply: \(action)")
                 #endif
                 do {
                     let before = self.state
                     self.state = try RummyEngine.apply(action, by: seat, to: self.state, rng: &rng)
+                    // A bot throw that bounced (+10 wasted-throw penalty, card
+                    // still in hand) must not spin: a legal alternative exists
+                    // whenever the engine bounces, so play it directly.
+                    if case .throwCard = action,
+                       self.state.players[seat].hand.count == before.players[seat].hand.count,
+                       let legal = self.state.players[seat].hand.first(where: {
+                           !RummyEngine.throwPenalized($0, tableMelds: self.state.tableMelds)
+                       }) {
+                        self.state = try RummyEngine.apply(.throwCard(legal), by: seat, to: self.state, rng: &rng)
+                    }
                     if case .deal = action { self.startDealHold() }
                     self.announceTransition(from: before, action: action, seat: seat)
                     self.scheduleTurnNudge()
@@ -1297,13 +1314,40 @@ final class RummyGameViewModel {
         }
     }
 
-    private func pauseForNextBotAction() -> Double {
+    /// Natural pacing: obvious moves come fast, big commitments get a beat,
+    /// and a tilted bot snaps its cards down noticeably quicker.
+    private func pauseForNextBotAction(action: RummyAction, mind: BotMind) -> Double {
         switch state.phase {
-        case .dealing: 0.7  // let each shuffle animation read
-        case .vote: 1.1     // opinions land one by one in the center
-        case .turn: Double.random(in: 0.55...1.15, using: &rng)
-        default: 0.4
+        case .dealing: return 0.7  // let each shuffle animation read
+        case .vote: return 1.1     // opinions land one by one in the center
+        case .roundEnded, .matchEnded: return 0.4
+        case .turn: break
         }
+        let base: Double
+        switch action {
+        case .layDown(let melds):
+            // The full-hand slam deserves its dramatic pause.
+            base = melds.reduce(0) { $0 + $1.entries.count } >= 10
+                ? 2.0
+                : Double.random(in: 1.2...1.8, using: &rng)
+        case .takeThrow, .takeThrowAndLayDown:
+            base = Double.random(in: 1.0...1.7, using: &rng)
+        case .appendCard, .swapJoker:
+            base = Double.random(in: 0.75...1.2, using: &rng)
+        case .throwCard:
+            base = Double.random(in: 0.5...0.95, using: &rng)
+        default:
+            base = 0.4
+        }
+        return min(2.0, base * (1 - 0.35 * mind.frustration))
+    }
+
+    /// Mood cue for a bot seat (nil for the human, the eliminated, or old
+    /// saves without minds).
+    func botMood(seat: Int) -> BotMood? {
+        guard !state.players[seat].isHuman, !state.players[seat].isEliminated,
+              let minds = state.botMinds, minds.indices.contains(seat) else { return nil }
+        return minds[seat].mood
     }
 
     private func finishMatch(placements: [FinalPlacement]) {
