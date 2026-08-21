@@ -419,7 +419,10 @@ final class RummyGameViewModel {
             if !current.isEmpty { clusters.append(current) }
             var runValues = Set<Int>()
             for cluster in clusters where cluster.count >= 2 {
-                runValues.formUnion(cluster)
+                // A chain of only low cards (2–4, no ace) is weak run
+                // material — it joins the number groups instead.
+                let lowOnly = cluster.allSatisfy { $0 <= 4 } && !cluster.contains(1)
+                if !lowOnly { runValues.formUnion(cluster) }
             }
             for card in suited {
                 guard let rank = card.rank?.rawValue else { continue }
@@ -429,10 +432,37 @@ final class RummyGameViewModel {
                 if chains { runCards.append(card) } else { looseCards.append(card) }
             }
         }
-        let numberSection = looseCards.sorted {
-            (sortRankKey($1), suitIndex($0), $0.id) < (sortRankKey($0), suitIndex($1), $1.id)
+        return jokers + suitGroupedOrder(runCards) + numberClusters(looseCards)
+    }
+
+    /// The number side of the smart sort: same-and-adjacent ranks cluster
+    /// together (4-4-3-2-2), bigger clusters before smaller ones, descending
+    /// inside each — so an isolated pair like 9-9 lands at the far right.
+    private func numberClusters(_ cards: [Card]) -> [Card] {
+        let groups = Dictionary(grouping: cards) { sortRankKey($0) }
+        var clusters: [[Int]] = []
+        var current: [Int] = []
+        for key in groups.keys.sorted(by: >) {
+            if let last = current.last, last - key > 1 {
+                clusters.append(current)
+                current = []
+            }
+            current.append(key)
         }
-        return jokers + suitGroupedOrder(runCards) + numberSection
+        if !current.isEmpty { clusters.append(current) }
+        let ordered = clusters.sorted { a, b in
+            let sizeA = a.reduce(0) { $0 + (groups[$1]?.count ?? 0) }
+            let sizeB = b.reduce(0) { $0 + (groups[$1]?.count ?? 0) }
+            if sizeA != sizeB { return sizeA > sizeB }
+            return a.first! > b.first!
+        }
+        return ordered.flatMap { cluster in
+            cluster.flatMap { key in
+                (groups[key] ?? []).sorted {
+                    (suitIndex($0), $0.id) < (suitIndex($1), $1.id)
+                }
+            }
+        }
     }
 
     /// Type-first sort: jokers leftmost, suits in fixed order, ranks
