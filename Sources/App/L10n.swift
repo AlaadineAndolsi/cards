@@ -29,7 +29,7 @@ enum L10n {
     static let takeThrow = "Take throw"
     static let takeAndLayDown = "Take & lay down"
     static let layDown = "Lay down"
-    static let layDownAuto = "Lay down (auto)"
+    static let lock = "Lock"
     static let addToMeld = "Add to meld"
     static let swapJoker = "Swap joker"
     static let throwCard = "Throw"

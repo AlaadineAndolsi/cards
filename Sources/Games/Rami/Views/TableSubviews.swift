@@ -196,7 +196,7 @@ struct ThrowSpotView: View {
     }
 }
 
-/// Face-down draw pile with remaining count. Tap = purchase.
+/// Face-down draw pile with a clear remaining count below. Tap = purchase.
 struct PileView: View {
     let count: Int
     let enabled: Bool
@@ -204,7 +204,7 @@ struct PileView: View {
 
     var body: some View {
         Button(action: onTap) {
-            ZStack(alignment: .bottomTrailing) {
+            VStack(spacing: 5) {
                 ZStack {
                     ForEach(0..<3) { index in
                         CardBackView()
@@ -212,18 +212,20 @@ struct PileView: View {
                             .offset(x: CGFloat(index) * -1.5, y: CGFloat(index) * -1.5)
                     }
                 }
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7)
+                        .strokeBorder(enabled ? Theme.accent : .clear, lineWidth: 2.5)
+                        .shadow(color: enabled ? Theme.accent.opacity(0.5) : .clear, radius: 6)
+                        .frame(width: 54, height: 72))
                 Text("\(count)")
-                    .font(.system(size: 10, weight: .bold, design: .rounded))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Theme.accent, in: Capsule())
-                    .foregroundStyle(.black)
-                    .offset(x: 6, y: 6)
+                    .font(.system(size: 14, weight: .heavy, design: .rounded))
+                    .monospacedDigit()
+                    .contentTransition(.numericText(countsDown: true))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 3)
+                    .background(Color.black.opacity(0.45), in: Capsule())
+                    .foregroundStyle(Theme.accent)
             }
-            .overlay(
-                RoundedRectangle(cornerRadius: 6)
-                    .strokeBorder(enabled ? Theme.accent : .clear, lineWidth: 2)
-                    .shadow(color: enabled ? Theme.accent.opacity(0.5) : .clear, radius: 6))
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(L10n.pile): \(count)")
@@ -257,6 +259,7 @@ struct ArcHandView: View {
                     let centerOffset = CGFloat(index) - CGFloat(count - 1) / 2
                     let isDragged = draggedID == card.id
                     let selected = viewModel.selectedCardIDs.contains(card.id)
+                    let locked = viewModel.lockedCardIDs.contains(card.id)
                     let x = isDragged
                         ? dragStartX + dragTranslation.width
                         : width / 2 + centerOffset * step
@@ -271,7 +274,9 @@ struct ArcHandView: View {
                         .shadow(color: .black.opacity(0.4), radius: 3, x: -2, y: 2)
                         .overlay(
                             RoundedRectangle(cornerRadius: 5)
-                                .strokeBorder(selected ? Theme.accent : .clear, lineWidth: 2))
+                                .strokeBorder(
+                                    selected ? Theme.accent : (locked ? Color.green : .clear),
+                                    lineWidth: 2.5))
                         .rotationEffect(.degrees(isDragged ? 0 : centerOffset * 3.0))
                         .scaleEffect(isDragged ? 1.1 : 1)
                         .position(x: x, y: y)
@@ -318,8 +323,8 @@ struct ArcHandView: View {
                     draggedID = nil
                     dragTranslation = .zero
                 }
-                // Slide up = throw.
-                if translation.height < -80, abs(translation.width) < 120, viewModel.canThrow {
+                // Slide up = throw. Generous drop zone: any clear upward slide.
+                if translation.height < -45, viewModel.canThrow {
                     Haptics.action()
                     withAnimation(reduceMotion ? .default : .cardSpring) {
                         viewModel.apply(.throwCard(card))

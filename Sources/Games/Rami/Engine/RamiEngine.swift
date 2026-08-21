@@ -159,6 +159,17 @@ enum RamiEngine {
             guard let handIndex = s.players[seat].hand.firstIndex(of: card) else {
                 throw RamiError.cardNotInHand
             }
+            // Wasted throw rule: a joker, or a card that fits a table meld,
+            // costs +10 and comes back — unless no legal throw exists at all.
+            if Self.throwPenalized(card, tableMelds: s.tableMelds) {
+                let hasLegalAlternative = s.players[seat].hand.contains {
+                    $0.id != card.id && !Self.throwPenalized($0, tableMelds: s.tableMelds)
+                }
+                if hasLegalAlternative {
+                    s.players[seat].penaltiesThisRound += 10
+                    return s
+                }
+            }
             s.players[seat].hand.remove(at: handIndex)
             s.players[seat].throwStack.append(card)
             s.turnsCompletedThisRound += 1
@@ -179,6 +190,14 @@ enum RamiEngine {
     }
 
     // MARK: - Helpers
+
+    /// A throw is penalized when the card is a joker or fits any table meld.
+    static func throwPenalized(_ card: Card, tableMelds: [TableMeld]) -> Bool {
+        if card.isJoker { return true }
+        guard let rank = card.rank, let suit = card.suit else { return false }
+        let entry = MeldEntry(card: card, asRank: rank, asSuit: suit)
+        return tableMelds.contains { $0.meld.inserting(entry) != nil }
+    }
 
     /// True when some meld combination (keeping at least one card to throw)
     /// reaches the required first-lay-down total.
@@ -249,6 +268,7 @@ enum RamiEngine {
             s.players[seat].throwStack = []
             s.players[seat].takenThrows = []
             s.players[seat].hasLaidDown = false
+            s.players[seat].penaltiesThisRound = 0
         }
         s.tableMelds = []
         s.lastInitialLayDownTotal = nil

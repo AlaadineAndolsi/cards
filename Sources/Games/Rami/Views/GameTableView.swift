@@ -15,6 +15,8 @@ struct GameTableView: View {
     @State private var shufflePulse = 0
     @State private var showLastThrows = false
     @State private var dealFlights: [DealFlight] = []
+    /// Pile count shown during the deal animation, ticking down from 108.
+    @State private var animatedPileCount: Int?
     @Namespace private var cardSpace
 
     private var state: RamiState { viewModel.state }
@@ -202,7 +204,7 @@ struct GameTableView: View {
                 }
             }
             // Draw pile under the left player; tap to purchase.
-            PileView(count: state.drawPile.count, enabled: canPurchase) {
+            PileView(count: animatedPileCount ?? state.drawPile.count, enabled: canPurchase) {
                 guard canPurchase else { return }
                 Haptics.action()
                 withAnimation(reduceMotion ? .default : .cardSpring) {
@@ -248,9 +250,11 @@ struct GameTableView: View {
         return false
     }
 
-    /// The most recent visible throw: the top of the previous player's stack.
+    /// The most recent visible throw only — never anything older. Once the
+    /// current player takes it, the spot goes empty until the next throw.
     private var lastThrow: Card? {
-        guard case .turn(let seat, _) = state.phase else { return nil }
+        guard case .turn(let seat, let stage) = state.phase else { return nil }
+        if case .awaitingThrow(let drew, _) = stage, drew == .takenThrow { return nil }
         return state.players[state.previousAliveSeat(before: seat)].throwStack.last
     }
 
@@ -306,14 +310,24 @@ struct GameTableView: View {
                     let offset = (receiver - viewModel.humanSeat + 4) % 4
                     flights.append(DealFlight(id: flightID, seatOffset: offset, delay: delay))
                     flightID += 1
-                    delay += 0.05
+                    delay += 0.065
                 }
             }
             delay += 0.22  // breath between passes: the rhythm reads
         }
         dealFlights = flights
+        // The pile count follows the flights, ticking down from 108.
+        animatedPileCount = 108
+        let schedule = flights.map(\.delay)
         Task {
-            try? await Task.sleep(for: .seconds(delay + 0.6))
+            var previous = 0.0
+            for (index, flightDelay) in schedule.enumerated() {
+                try? await Task.sleep(for: .seconds(flightDelay - previous))
+                previous = flightDelay
+                withAnimation(.linear(duration: 0.1)) { animatedPileCount = 108 - index - 1 }
+            }
+            try? await Task.sleep(for: .seconds(0.6))
+            animatedPileCount = nil
             dealFlights = []
         }
     }
@@ -332,20 +346,38 @@ struct GameTableView: View {
         state.turnsCompletedThisRound >= state.aliveCount - 1
     }
 
-    @ViewBuilder
+    /// Controls row above the hand: card count, locked-series totals (always
+    /// visible), Lock for the current selection, Lay down for locked series.
     private var layDownPill: some View {
-        if !layDownUnlocked {
-            EmptyView()
-        } else if let selection = viewModel.selectedMelds, case .awaitingThrow = viewModel.humanStage {
-            let hasLaidDown = state.players[viewModel.humanSeat].hasLaidDown
-            let meets = hasLaidDown || selection.total >= state.requiredLayDown
-            pill("\(L10n.layDown) (\(selection.total))", prominent: meets) {
-                viewModel.apply(.layDown(melds: selection.melds))
+        HStack(spacing: 8) {
+            Text("\(state.players[viewModel.humanSeat].hand.count)")
+                .font(.system(size: 13, weight: .heavy, design: .rounded))
+                .monospacedDigit()
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4)
+                .background(Color.black.opacity(0.45), in: Capsule())
+                .foregroundStyle(.white)
+            ForEach(Array(viewModel.lockedValues.enumerated()), id: \.offset) { _, value in
+                Text("\(value)")
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.green.opacity(0.75), in: Capsule())
+                    .foregroundStyle(.white)
             }
-        } else if viewModel.mustLayDownNow {
-            // Committed by the take: offer the engine-found lay-down.
-            pill(L10n.layDownAuto, prominent: true) {
-                viewModel.autoLayDown()
+            if let series = viewModel.selectionAsSeries {
+                pill("\(L10n.lock) (\(series.value))", prominent: false) {
+                    viewModel.lockSelection()
+                }
+            }
+            if layDownUnlocked, case .awaitingThrow = viewModel.humanStage,
+               !viewModel.lockedMelds.isEmpty {
+                let total = viewModel.lockedTotal
+                let meets = state.players[viewModel.humanSeat].hasLaidDown
+                    || total >= state.requiredLayDown
+                pill("\(L10n.layDown) (\(total))", prominent: meets) {
+                    viewModel.layDownLockedSeries()
+                }
             }
         }
     }
@@ -492,7 +524,7 @@ private struct DealFlightCard: View {
 
     var body: some View {
         CardBackView()
-            .frame(width: 34)
+            .frame(width: 44)
             .position(flown ? to : from)
             .opacity(flown ? 0 : 1)
             .animation(.easeIn(duration: 0.34).delay(delay), value: flown)

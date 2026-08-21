@@ -296,6 +296,20 @@ struct RamiBot: Sendable {
         var deadwood = hand.indices.filter { partition.mask & (1 << $0) == 0 }
         if deadwood.isEmpty { deadwood = Array(hand.indices) }
 
+        // Never choose a penalized throw (joker / meld-fitting card) while a
+        // legal one exists — the engine would bounce it back with +10.
+        let legalDeadwood = deadwood.filter {
+            !RamiEngine.throwPenalized(hand[$0], tableMelds: view.tableMelds)
+        }
+        if !legalDeadwood.isEmpty {
+            deadwood = legalDeadwood
+        } else {
+            let legalAnywhere = hand.indices.filter {
+                !RamiEngine.throwPenalized(hand[$0], tableMelds: view.tableMelds)
+            }
+            if !legalAnywhere.isEmpty { deadwood = legalAnywhere }
+        }
+
         // Stalemate breaker: if the round drags on far beyond normal length,
         // churn the hand with a random legal discard instead of hoarding.
         if view.turnsCompletedThisRound > 30 * view.aliveCount {

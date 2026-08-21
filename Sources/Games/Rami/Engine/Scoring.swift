@@ -30,11 +30,13 @@ enum Scoring {
     }
 
     private static func finish(_ s: inout RamiState, deltas: [Int], closerSeat: Int?) {
+        var deltas = deltas
         for seat in s.players.indices {
             guard !s.players[seat].isEliminated else {
                 s.players[seat].roundScores.append(nil)
                 continue
             }
+            deltas[seat] += s.players[seat].penaltiesThisRound
             s.players[seat].roundScores.append(deltas[seat])
             s.players[seat].totalScore += deltas[seat]
         }

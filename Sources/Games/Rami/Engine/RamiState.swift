@@ -23,6 +23,8 @@ struct PlayerState: Codable, Hashable, Sendable {
     var hasLaidDown = false
     var isEliminated = false
     var totalScore = 0
+    /// +10 per wasted throw (joker or meld-fitting card); settled at round end.
+    var penaltiesThisRound = 0
     var roundScores: [Int?] = []   // nil = abandoned (fully passed) round
     /// Cards this player took from throws this round — public info for bots.
     var takenThrows: [Card] = []

@@ -16,6 +16,9 @@ final class RamiGameViewModel {
     var selectedCardIDs: Set<Int> = []
     /// Manual hand order (card ids); updated by sorting or dragging.
     var handOrder: [Int] = []
+    /// Locked series: confirmed melds kept grouped at the left of the hand.
+    private(set) var lockedSeries: [[Int]] = []
+    private(set) var lockedMelds: [Meld] = []
     var lastError: RamiError?
     /// Seat whose bot action just happened, for UI callouts.
     var lastBotNote: String?
@@ -80,21 +83,66 @@ final class RamiGameViewModel {
 
     var takeableThrow: Card? { state.takeableThrow(for: humanSeat) }
 
-    /// Interpretation of the current selection as melds (nil when invalid).
-    /// Cards may include the takeable throw during a take-and-lay-down.
-    var selectedMelds: (melds: [Meld], total: Int)? {
-        var pool = state.players[humanSeat].hand.filter { selectedCardIDs.contains($0.id) }
-        if let takeable = takeableThrow, selectedCardIDs.contains(takeable.id) {
-            pool.append(takeable)
-        }
-        guard pool.count >= Meld.minSize else { return nil }
-        let partition = HandAnalysis.bestPartition(hand: pool, maximizeCoverage: true)
-        guard partition.coveredCount == pool.count else { return nil }
-        return (partition.melds, partition.value)
+    // MARK: Locked series
+
+    var lockedCardIDs: Set<Int> { Set(lockedSeries.flatMap { $0 }) }
+
+    var lockedValues: [Int] {
+        lockedMelds.map { (try? $0.validatedThresholdValue()) ?? 0 }
     }
 
-    var selectionIncludesTakeable: Bool {
-        takeableThrow.map { selectedCardIDs.contains($0.id) } ?? false
+    var lockedTotal: Int { lockedValues.reduce(0, +) }
+
+    /// The current selection interpreted as ONE valid series, if it is one.
+    var selectionAsSeries: (meld: Meld, value: Int)? {
+        let cards = state.players[humanSeat].hand.filter {
+            selectedCardIDs.contains($0.id) && !lockedCardIDs.contains($0.id)
+        }
+        guard cards.count == selectedCardIDs.count,
+              cards.count >= Meld.minSize, cards.count <= Meld.maxSize else { return nil }
+        let best = HandAnalysis.candidates(hand: cards)
+            .filter { $0.cardCount == cards.count }
+            .max { $0.value < $1.value }
+        guard let best else { return nil }
+        return (best.meld, best.value)
+    }
+
+    func lockSelection() {
+        guard let series = selectionAsSeries else { return }
+        Haptics.action()
+        lockedSeries.append(series.meld.entries.map(\.card.id))
+        lockedMelds.append(series.meld)
+        selectedCardIDs = []
+        rebuildHandOrder()
+    }
+
+    func unlockSeries(containing id: Int) {
+        guard let index = lockedSeries.firstIndex(where: { $0.contains(id) }) else { return }
+        Haptics.tap()
+        lockedSeries.remove(at: index)
+        lockedMelds.remove(at: index)
+        rebuildHandOrder()
+    }
+
+    /// Lays every locked series in one action.
+    func layDownLockedSeries() {
+        guard !lockedMelds.isEmpty else { return }
+        apply(.layDown(melds: lockedMelds))
+    }
+
+    private func rebuildHandOrder() {
+        let locked = lockedSeries.flatMap { $0 }
+        handOrder = locked + humanHand.map(\.id).filter { !locked.contains($0) }
+    }
+
+    /// Drop any locked series whose cards left the hand (laid or thrown).
+    private func pruneLocks() {
+        let handIDs = Set(state.players[humanSeat].hand.map(\.id))
+        for index in lockedSeries.indices.reversed()
+        where !lockedSeries[index].allSatisfy({ handIDs.contains($0) }) {
+            lockedSeries.remove(at: index)
+            lockedMelds.remove(at: index)
+        }
     }
 
     // MARK: Human actions
@@ -105,10 +153,16 @@ final class RamiGameViewModel {
         #endif
         do {
             let before = state.players[humanSeat].hand
+            let penaltiesBefore = state.players[humanSeat].penaltiesThisRound
             state = try RamiEngine.apply(action, by: humanSeat, to: state, rng: &rng)
+            if state.players[humanSeat].penaltiesThisRound > penaltiesBefore {
+                Haptics.warning()
+                lastBotNote = "+10 — that card plays on a meld, it comes back"
+            }
             lastError = nil
             selectedCardIDs = []
             syncHandOrder()
+            pruneLocks()
             if case .deal = action { startDealHold() }
             if case .drawFromPile = action,
                let drawn = state.players[humanSeat].hand.last, !before.contains(drawn) {
@@ -125,6 +179,11 @@ final class RamiGameViewModel {
     }
 
     func toggleSelection(_ card: Card) {
+        // Tapping a locked card unlocks its series.
+        if lockedCardIDs.contains(card.id) {
+            unlockSeries(containing: card.id)
+            return
+        }
         Haptics.tap()
         if selectedCardIDs.contains(card.id) {
             selectedCardIDs.remove(card.id)
@@ -133,22 +192,45 @@ final class RamiGameViewModel {
         }
     }
 
+    /// Sorting is always big-to-small from the left; the ace sorts above the
+    /// king (it still plays low in A-2-3 runs). Jokers first. Locked series
+    /// stay grouped at the very left.
+    private func sortRankKey(_ card: Card) -> Int {
+        if card.isJoker { return 15 }
+        if card.rank == .ace { return 14 }
+        return card.rank?.rawValue ?? 0
+    }
+
+    private func suitIndex(_ card: Card) -> Int {
+        switch card.suit {
+        case .spades: 0
+        case .hearts: 1
+        case .clubs: 2
+        case .diamonds: 3
+        case nil: -1
+        }
+    }
+
     func sortHandByRank() {
-        handOrder = state.players[humanSeat].hand
+        let locked = lockedSeries.flatMap { $0 }
+        let rest = state.players[humanSeat].hand
+            .filter { !locked.contains($0.id) }
             .sorted {
-                ($0.rank?.rawValue ?? 14, $0.suit?.rawValue ?? "z", $0.id)
-                    < ($1.rank?.rawValue ?? 14, $1.suit?.rawValue ?? "z", $1.id)
+                (sortRankKey($1), suitIndex($0), $0.id)
+                    < (sortRankKey($0), suitIndex($1), $1.id)
             }
-            .map(\.id)
+        handOrder = locked + rest.map(\.id)
     }
 
     func sortHandBySuit() {
-        handOrder = state.players[humanSeat].hand
+        let locked = lockedSeries.flatMap { $0 }
+        let rest = state.players[humanSeat].hand
+            .filter { !locked.contains($0.id) }
             .sorted {
-                ($0.suit?.rawValue ?? "z", $0.rank?.rawValue ?? 14, $0.id)
-                    < ($1.suit?.rawValue ?? "z", $1.rank?.rawValue ?? 14, $1.id)
+                (suitIndex($0), sortRankKey($1), $0.id)
+                    < (suitIndex($1), sortRankKey($0), $1.id)
             }
-            .map(\.id)
+        handOrder = locked + rest.map(\.id)
     }
 
     func moveHandCard(fromOffsets: IndexSet, toOffset: Int) {
@@ -188,15 +270,6 @@ final class RamiGameViewModel {
         return false
     }
 
-    /// Lays the best qualifying combination for the player — the safety net
-    /// when a forced lay-down is due but hard to spot by hand.
-    func autoLayDown() {
-        let hand = state.players[humanSeat].hand
-        let partition = HandAnalysis.bestPartition(hand: hand, maxCovered: hand.count - 1)
-        guard partition.value >= state.requiredLayDown, !partition.melds.isEmpty else { return }
-        Haptics.action()
-        apply(.layDown(melds: partition.melds))
-    }
 
     // MARK: Deal & draw animation state
 
@@ -205,7 +278,7 @@ final class RamiGameViewModel {
         let cards = pattern.passes(playerCount: state.aliveCount)
             .reduce(0) { $0 + $1.reduce(0, +) }
         let passes = pattern.passes(playerCount: state.aliveCount).count
-        let duration = Double(cards) * 0.05 + Double(passes) * 0.22 + 0.9
+        let duration = Double(cards) * 0.065 + Double(passes) * 0.22 + 0.9
         isDealAnimating = true
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(duration))
