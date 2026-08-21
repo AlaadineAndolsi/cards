@@ -824,20 +824,30 @@ struct MeldPreviewOverlay: View {
     }
 }
 
-/// A card back that flies from the deck to a seat, then fades.
+/// A card back that flies from the deck to a seat, then fades. It stays
+/// completely invisible until its launch moment — the center deck alone is
+/// the pile, never a second stack on top — then departs at the deck's card
+/// size and shrinks on the way out.
 private struct DealFlightCard: View {
     let delay: Double
     let from: CGPoint
     let to: CGPoint
     @State private var flown = false
+    @State private var launched = false
 
     var body: some View {
         CardBackView()
-            .frame(width: 44)
+            .frame(width: 62)
+            .scaleEffect(flown ? 0.6 : 1)
             .position(flown ? to : from)
-            .opacity(flown ? 0 : 1)
-            .animation(.easeIn(duration: 0.34).delay(delay), value: flown)
-            .onAppear { flown = true }
+            .opacity(launched && !flown ? 1 : 0)
+            .onAppear {
+                Task {
+                    try? await Task.sleep(for: .seconds(delay))
+                    launched = true
+                    withAnimation(.easeIn(duration: 0.34)) { flown = true }
+                }
+            }
             .allowsHitTesting(false)
     }
 }
