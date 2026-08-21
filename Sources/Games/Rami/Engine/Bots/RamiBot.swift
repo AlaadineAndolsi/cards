@@ -15,6 +15,8 @@ struct RamiBot: Sendable {
             return .deal(DealPattern.allCases.randomElement(using: &rng)!)
 
         case .vote:
+            // A hand dead in doubles forces the redeal outright.
+            if RamiEngine.canForcePass(hand: view.hand) { return .forcePass }
             return .declareIntent(play: wantsToPlay(view))
 
         case .turn(_, .awaitingDraw):

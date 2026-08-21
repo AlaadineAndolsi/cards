@@ -6,9 +6,10 @@ import SwiftUI
 /// top/bottom exactly like the source art. Crisp at every size.
 struct CardView: View {
     let card: Card
-    /// Adds an upright index in the top-right corner — used for fanned hands
-    /// where only a card's right side stays visible.
-    var extraTopRightIndex = false
+    /// Hand style: upright indices in BOTH top corners and no upside-down
+    /// bottom index — used for the fanned hand where slivers must read at
+    /// the top, right-side up.
+    var handStyle = false
 
     static let designSize = CGSize(width: 140, height: 190)
     static let aspectRatio: CGFloat = 140.0 / 190.0
@@ -17,7 +18,7 @@ struct CardView: View {
         Canvas(rendersAsynchronously: false) { context, size in
             let scale = min(size.width / Self.designSize.width, size.height / Self.designSize.height)
             context.scaleBy(x: scale, y: scale)
-            CardRenderer.drawFront(card: card, in: &context, extraTopRightIndex: extraTopRightIndex)
+            CardRenderer.drawFront(card: card, in: &context, handStyle: handStyle)
         }
         .aspectRatio(Self.aspectRatio, contentMode: .fit)
         .accessibilityLabel(accessibilityName)
@@ -68,14 +69,14 @@ enum CardRenderer {
                 CGPoint(x: 49, y: 72), CGPoint(x: 89, y: 72)], []),
     ]
 
-    static func drawFront(card: Card, in context: inout GraphicsContext, extraTopRightIndex: Bool = false) {
+    static func drawFront(card: Card, in context: inout GraphicsContext, handStyle: Bool = false) {
         drawFrame(in: &context)
         if card.isJoker {
             drawJoker(in: &context)
             return
         }
         guard let rank = card.rank, let suit = card.suit else { return }
-        if extraTopRightIndex {
+        if handStyle {
             let ink = suit.isRed ? red : Color.black
             var corner = context
             corner.translateBy(x: 100, y: 0)
@@ -86,12 +87,13 @@ enum CardRenderer {
                 fill(large, with: .color(ink), in: &corner)
             }
         }
-        // Top-left corner content, then the same rotated 180° about the center.
-        drawHalf(rank: rank, suit: suit, in: &context)
+        // Top-left corner content, then the same rotated 180° about the center
+        // (hand style keeps the mirrored pips but drops its upside-down index).
+        drawHalf(rank: rank, suit: suit, in: &context, includeIndex: true)
         var mirrored = context
         mirrored.translateBy(x: 138, y: 190)
         mirrored.rotate(by: .degrees(180))
-        drawHalf(rank: rank, suit: suit, in: &mirrored)
+        drawHalf(rank: rank, suit: suit, in: &mirrored, includeIndex: !handStyle)
         // Upright extras: center pips or the ace's large emblem.
         let ink = suit.isRed ? red : Color.black
         if rank == .ace, let d = CardArt.aceSuit[suit] {
@@ -108,13 +110,17 @@ enum CardRenderer {
     }
 
     /// Corner index (glyph + large pip), the top pip grid, and court figures.
-    private static func drawHalf(rank: Rank, suit: Suit, in context: inout GraphicsContext) {
+    private static func drawHalf(
+        rank: Rank, suit: Suit, in context: inout GraphicsContext, includeIndex: Bool = true
+    ) {
         let ink = suit.isRed ? red : Color.black
-        if let glyph = CardArt.rankGlyphs[rank] {
-            fill(glyph, with: .color(ink), in: &context)
-        }
-        if let large = CardArt.largeSuit[suit] {
-            fill(large, with: .color(ink), in: &context)
+        if includeIndex {
+            if let glyph = CardArt.rankGlyphs[rank] {
+                fill(glyph, with: .color(ink), in: &context)
+            }
+            if let large = CardArt.largeSuit[suit] {
+                fill(large, with: .color(ink), in: &context)
+            }
         }
         if let layout = pipLayout[rank], let small = CardArt.smallSuit[suit] {
             for point in layout.top {

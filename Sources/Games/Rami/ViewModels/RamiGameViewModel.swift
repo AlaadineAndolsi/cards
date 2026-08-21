@@ -285,6 +285,8 @@ final class RamiGameViewModel {
     private func noteBotAction(_ action: RamiAction, seat: Int) {
         let name = state.players[seat].name
         switch action {
+        case .forcePass:
+            lastBotNote = "\(name) forced a pass (doubles)"
         case .takeThrow, .takeThrowAndLayDown:
             lastBotNote = "\(name) took the throw"
         case .layDown(let melds):

@@ -405,11 +405,17 @@ struct GameTableView: View {
             where current == viewModel.humanSeat && !viewModel.isDealAnimating:
             VotePanelView(
                 isProposer: proposer == viewModel.humanSeat,
-                proposerName: state.players[proposer].name
-            ) { play in
-                Haptics.action()
-                viewModel.apply(.declareIntent(play: play))
-            }
+                proposerName: state.players[proposer].name,
+                canForcePass: RamiEngine.canForcePass(
+                    hand: state.players[viewModel.humanSeat].hand),
+                onVote: { play in
+                    Haptics.action()
+                    viewModel.apply(.declareIntent(play: play))
+                },
+                onForcePass: {
+                    Haptics.warning()
+                    viewModel.apply(.forcePass)
+                })
         case .roundEnded(let result):
             RoundEndView(state: state, result: result) {
                 Haptics.success()

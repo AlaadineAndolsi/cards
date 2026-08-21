@@ -69,6 +69,68 @@ struct VoteTests {
     }
 }
 
+struct ForcedPassTests {
+    private func pair(_ rank: Rank, _ suit: Suit) -> [Card] {
+        [TestCards.card(rank, suit, copy: 0), TestCards.card(rank, suit, copy: 1)]
+    }
+
+    private func filler(_ count: Int, excluding: [Card]) -> [Card] {
+        let used = Set(excluding.map(\.id))
+        return Array(Card.fullDeck().filter { !used.contains($0.id) && !$0.isJoker }
+            .suffix(count))
+    }
+
+    @Test func qualificationRules() {
+        let fourDoubles = pair(.two, .hearts) + pair(.five, .clubs)
+            + pair(.nine, .spades) + pair(.king, .diamonds)
+        #expect(RamiEngine.canForcePass(hand: fourDoubles + filler(6, excluding: fourDoubles)))
+
+        let threeDoubles = pair(.two, .hearts) + pair(.five, .clubs) + pair(.nine, .spades)
+        #expect(!RamiEngine.canForcePass(hand: threeDoubles + filler(8, excluding: threeDoubles)))
+        #expect(RamiEngine.canForcePass(
+            hand: threeDoubles + [TestCards.joker()] + filler(7, excluding: threeDoubles)))
+
+        let twoDoubles = pair(.two, .hearts) + pair(.five, .clubs)
+        #expect(!RamiEngine.canForcePass(
+            hand: twoDoubles + [TestCards.joker()] + filler(9, excluding: twoDoubles)))
+        #expect(RamiEngine.canForcePass(
+            hand: twoDoubles + [TestCards.joker(0), TestCards.joker(1)]
+                + filler(8, excluding: twoDoubles)))
+
+        // Two copies of the same rank in different suits are not a double.
+        let fakeDoubles = [
+            TestCards.card(.two, .hearts), TestCards.card(.two, .spades),
+            TestCards.card(.five, .clubs), TestCards.card(.five, .diamonds),
+            TestCards.card(.nine, .spades), TestCards.card(.nine, .hearts),
+            TestCards.card(.king, .diamonds), TestCards.card(.king, .clubs),
+        ]
+        #expect(!RamiEngine.canForcePass(hand: fakeDoubles + filler(6, excluding: fakeDoubles)))
+    }
+
+    @Test func forcePassAbandonsTheRoundImmediately() throws {
+        var s = StateBuilder.base()
+        let qualifying = pair(.two, .hearts) + pair(.five, .clubs)
+            + pair(.nine, .spades) + pair(.king, .diamonds)
+        s.players[0].hand = qualifying + filler(6, excluding: qualifying)
+        for seat in 1..<4 { s.players[seat].hand = filler(14, excluding: []) }
+        s.dealerSeat = 3
+        s.phase = .vote(proposerSeat: 0, currentSeat: 0)
+        let after = try StateBuilder.apply(.forcePass, by: 0, to: s)
+        #expect(after.phase == .dealing(shuffles: 0))
+        #expect(after.dealerSeat == 0)  // rotates right from seat 3
+        #expect(after.players.allSatisfy { $0.roundScores == [nil] && $0.hand.isEmpty })
+    }
+
+    @Test func forcePassWithoutQualifyingHandIsRejected() throws {
+        var s = StateBuilder.base()
+        for seat in 0..<4 { s.players[seat].hand = filler(14, excluding: []) }
+        s.phase = .vote(proposerSeat: 0, currentSeat: 0)
+        #expect(throws: RamiError.cannotForcePass) {
+            try StateBuilder.apply(.forcePass, by: 0, to: s)
+        }
+    }
+}
+
 struct TurnStructureTests {
     @Test func drawFromPileMovesOneCardToHand() throws {
         let hand = distinctCards(14)

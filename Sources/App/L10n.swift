@@ -22,6 +22,7 @@ enum L10n {
     static let dealPattern = "Choose a deal pattern"
     static let play = "Play"
     static let proposePass = "Propose to pass"
+    static let forcePass = "Force pass"
     static let confirmPass = "Pass too"
     static let decline = "I want to play"
     static let purchase = "Purchase"

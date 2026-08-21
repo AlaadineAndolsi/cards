@@ -59,7 +59,9 @@ struct DealControlsView: View {
 struct VotePanelView: View {
     let isProposer: Bool
     let proposerName: String
+    let canForcePass: Bool
     let onVote: (Bool) -> Void
+    let onForcePass: () -> Void
 
     var body: some View {
         VStack {
@@ -91,6 +93,16 @@ struct VotePanelView: View {
                                 .padding(.vertical, 11)
                                 .background(.ultraThinMaterial, in: Capsule())
                                 .foregroundStyle(Theme.accent)
+                        }
+                    }
+                    if canForcePass {
+                        Button(action: onForcePass) {
+                            Label(L10n.forcePass, systemImage: "exclamationmark.2")
+                                .font(.subheadline.weight(.bold))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 11)
+                                .background(.red.opacity(0.85), in: Capsule())
+                                .foregroundStyle(.white)
                         }
                     }
                 }

@@ -7,6 +7,9 @@ enum RamiAction: Codable, Hashable, Sendable {
     // Vote phase: first actor `play: true` starts play, `play: false` proposes the pass;
     // subsequent players `play: true` decline (play begins), `play: false` agree to pass.
     case declareIntent(play: Bool)
+    // Vote phase: force the round to pass without a vote. Legal only with
+    // 4+ doubles, 3+ doubles and a joker, or 2+ doubles and two jokers.
+    case forcePass
     // Turn: draw step
     case drawFromPile
     case takeThrow                              // only after first lay-down
@@ -39,5 +42,6 @@ enum RamiError: Error, Equatable, Sendable {
     case jokerMismatch
     case noJokerInMeld
     case cannotAppendHere
+    case cannotForcePass
     case pileEmpty
 }

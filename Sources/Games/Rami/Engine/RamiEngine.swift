@@ -44,6 +44,13 @@ enum RamiEngine {
             guard seat == s.dealerSeat else { throw RamiError.notYourTurn }
             try deal(pattern: pattern, in: &s)
 
+        case (.forcePass, .vote(_, let current)):
+            guard seat == current else { throw RamiError.notYourTurn }
+            guard Self.canForcePass(hand: s.players[seat].hand) else {
+                throw RamiError.cannotForcePass
+            }
+            abandonRound(&s)
+
         case (.declareIntent(let play), .vote(let proposer, let current)):
             guard seat == current else { throw RamiError.notYourTurn }
             if play {
@@ -156,6 +163,21 @@ enum RamiEngine {
     }
 
     // MARK: - Helpers
+
+    /// A "double" is holding both copies of the same card. A hand dead enough
+    /// in doubles may force the round to pass without a vote:
+    /// 4+ doubles, or 3+ doubles with a joker, or 2+ doubles with two jokers.
+    static func canForcePass(hand: [Card]) -> Bool {
+        var copies: [Card.Kind: Int] = [:]
+        for card in hand where !card.isJoker {
+            copies[card.kind, default: 0] += 1
+        }
+        let doubles = copies.values.filter { $0 >= 2 }.count
+        let jokers = hand.filter(\.isJoker).count
+        return doubles >= 4
+            || (doubles >= 3 && jokers >= 1)
+            || (doubles >= 2 && jokers >= 2)
+    }
 
     /// The dealer's 15th card replaces their first draw of the round.
     private static func turnStartStage(for seat: Int, in state: RamiState) -> TurnStage {
