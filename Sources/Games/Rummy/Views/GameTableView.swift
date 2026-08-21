@@ -85,7 +85,7 @@ struct GameTableView: View {
                 if ProcessInfo.processInfo.environment["SHOW_MESSAGE_DEMO"] == "1" {
                     Group {
                         CenterBannerView(banner: .init(
-                            text: "Hamadi took the throw", style: .note,
+                            text: "Hamadi picked up the discard", style: .note,
                             icon: "hand.point.down.fill"))
                         .position(x: geometry.size.width / 2, y: geometry.size.height * 0.27)
                         VerdictTextView(text: L10n.playVerdict)
@@ -619,14 +619,14 @@ struct GameTableView: View {
         switch error {
         case .thresholdNotMet(let required, let got):
             "Need \(required) — you have \(got)"
-        case .throwTakeLocked: "Taking unlocks after the first full turn"
-        case .mustLayDownWithTake: "You took the throw — lay a series first"
+        case .throwTakeLocked: "Picking up the discard unlocks after the first cycle"
+        case .mustLayDownWithTake: "You picked up the discard — lay down a meld first"
         case .layDownLocked: "No lay-downs until the turn returns to the dealer"
         case .meldFull: "Melds hold at most 5 cards"
         case .cannotAppendHere: "Doesn't fit this meld"
         case .jokerPending: "Play the swapped joker first"
-        case .mustKeepACardToThrow: "Keep one card to throw"
-        case .invalidMeld: "Not a valid series"
+        case .mustKeepACardToThrow: "Keep one card to discard"
+        case .invalidMeld: "Not a valid meld"
         default: "Not allowed"
         }
     }
@@ -838,12 +838,12 @@ struct MeldPreviewOverlay: View {
                     .padding(.horizontal, 4)
                 }
                 .padding(.top, 4)
-                Text("Tap a card to place it on a series")
+                Text("Tap a card to place it on a meld")
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.secondary)
             } else {
                 Text(viewModel.canAppendToTable
-                     ? "No card in your hand fits these series"
+                     ? "No card in your hand fits these melds"
                      : "Lay down first to add cards here")
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.secondary)

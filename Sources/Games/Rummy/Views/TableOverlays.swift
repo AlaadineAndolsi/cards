@@ -69,8 +69,8 @@ struct VotePanelView: View {
             Theme.panel {
                 VStack(spacing: 14) {
                     Text(isProposer
-                         ? "Play this round, or propose to pass it?"
-                         : "\(proposerName) proposes to pass the round")
+                         ? "Play this round, or propose a redeal?"
+                         : "\(proposerName) proposes a redeal")
                         .font(.subheadline.weight(.semibold))
                         .multilineTextAlignment(.center)
                     HStack(spacing: 10) {
@@ -318,12 +318,12 @@ struct ScoreSheetView: View {
                 .font(.subheadline.weight(.bold))
                 .foregroundStyle(Theme.accent)
             gestureRow("hand.tap", "Tap — select / unlock")
-            gestureRow("lock.fill", "Long-press — lock series")
+            gestureRow("lock.fill", "Long-press — lock a meld")
             gestureRow("arrow.left.arrow.right", "Drag sideways — reorder")
-            gestureRow("arrow.up", "Slide up — throw")
-            gestureRow("arrow.up.square.fill", "Slide locked series up — lay")
-            gestureRow("hand.point.down.fill", "Slide throw down — take it")
-            gestureRow("rectangle.stack.fill", "Tap pile — purchase")
+            gestureRow("arrow.up", "Slide up — discard")
+            gestureRow("arrow.up.square.fill", "Slide a meld up — lay down")
+            gestureRow("hand.point.down.fill", "Slide the discard down — pick it up")
+            gestureRow("rectangle.stack.fill", "Tap the stock — purchase")
             gestureRow("plus.rectangle.on.rectangle", "Hold card over melds — add")
             gestureRow("xmark.circle", "✕ — reset selection & locks")
         }

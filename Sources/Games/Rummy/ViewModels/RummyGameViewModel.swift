@@ -79,7 +79,7 @@ final class RummyGameViewModel {
         #if DEBUG
         if ProcessInfo.processInfo.environment["SHOW_MESSAGE_DEMO"] == "1" {
             stripNotice = StripNotice(
-                text: "Laid 30 / 61 — throwing now costs +100", warn: true)
+                text: "Laid 30 / 61 — discarding now costs +100", warn: true)
         }
         #endif
     }
@@ -179,7 +179,7 @@ final class RummyGameViewModel {
             lockSelection()
         } else {
             Haptics.warning()
-            showNotice("Selection isn't a valid series", warn: true, duration: 1.8)
+            showNotice("Selection isn't a valid meld", warn: true, duration: 1.8)
         }
     }
 
@@ -210,7 +210,7 @@ final class RummyGameViewModel {
     func laySelectedSeries() {
         guard let partition = selectionAsPartition else {
             Haptics.warning()
-            showNotice("Selection isn't a valid series", warn: true, duration: 1.8)
+            showNotice("Selection isn't a valid meld", warn: true, duration: 1.8)
             return
         }
         Haptics.action()
@@ -276,18 +276,18 @@ final class RummyGameViewModel {
         guard case .awaitingThrow = humanStage else { return nil }
         if let pending = player.pendingLayDownValue, !player.hasLaidDown {
             if player.hand.count == 1 {
-                return ("Throw your last card — it's done!", false)
+                return ("Discard your last card to go out!", false)
             }
             if pending < state.requiredLayDown {
-                return ("Laid \(pending) / \(state.requiredLayDown) — throwing now costs +100", true)
+                return ("Laid \(pending) / \(state.requiredLayDown) — discarding now costs +100", true)
             }
-            return ("Laid \(pending) — throw a card to confirm", false)
+            return ("Laid \(pending) — discard to confirm", false)
         }
         if mustLayDownNow {
-            return ("You took the throw — lay a series first", true)
+            return ("You picked up the discard — lay down a meld first", true)
         }
         if !player.hasLaidDown, layDownUnlocked, lockedTotal >= state.requiredLayDown {
-            return ("You can lay down — slide a locked series up", false)
+            return ("You can lay down — slide a locked meld up", false)
         }
         return nil
     }
@@ -838,17 +838,17 @@ final class RummyGameViewModel {
                     (TableBanner(text: L10n.playVerdict, style: .verdict, icon: "play.fill"), 1.8),
                 ])
             case .declareIntent(false) where seat == proposer:
-                showBanner("\(name) said pass", style: .note, icon: "hand.raised.fill", duration: 3.0)
+                showBanner("\(name) proposes a redeal", style: .note, icon: "hand.raised.fill", duration: 3.0)
             case .declareIntent(false) where resolvedToPass:
                 showBanners([
-                    (TableBanner(text: "\(name): pass too", style: .note, icon: "hand.raised.fill"), 1.0),
+                    (TableBanner(text: "\(name) agrees to redeal", style: .note, icon: "hand.raised.fill"), 1.0),
                     (TableBanner(text: L10n.passVerdict, style: .verdict, icon: "hand.raised.fill"), 1.8),
                 ])
             case .declareIntent(false):
-                showBanner("\(name): pass too", style: .note, icon: "hand.raised.fill", duration: 3.0)
+                showBanner("\(name) agrees to redeal", style: .note, icon: "hand.raised.fill", duration: 3.0)
             case .forcePass:
                 showBanners([
-                    (TableBanner(text: "\(name) forced the pass — doubles", style: .note, icon: "hand.raised.fill"), 1.4),
+                    (TableBanner(text: "\(name) forced a redeal — doubles", style: .note, icon: "hand.raised.fill"), 1.4),
                     (TableBanner(text: L10n.passVerdict, style: .verdict, icon: "hand.raised.fill"), 1.8),
                 ])
             default: break
@@ -860,7 +860,7 @@ final class RummyGameViewModel {
             switch action {
             case .takeThrow, .takeThrowAndLayDown:
                 if seat != humanSeat {
-                    showBanner("\(name) took the throw", icon: "hand.point.down.fill", duration: 1.8)
+                    showBanner("\(name) picked up the discard", icon: "hand.point.down.fill", duration: 1.8)
                 }
             case .swapJoker:
                 showBanner("\(name) swapped a joker", icon: "arrow.triangle.2.circlepath", duration: 1.8)
@@ -940,10 +940,10 @@ final class RummyGameViewModel {
                 let text: String = switch self.humanStage {
                 case .awaitingDraw:
                     self.state.throwTakeUnlocked && self.takeableThrow != nil
-                        ? "Your turn — purchase or take the throw"
+                        ? "Your turn — purchase or pick up the discard"
                         : "Your turn — purchase a card"
                 default:
-                    "Throw a card"
+                    "Discard a card"
                 }
                 self.showNotice(text, duration: 3)
                 try? await Task.sleep(for: .seconds(11))
