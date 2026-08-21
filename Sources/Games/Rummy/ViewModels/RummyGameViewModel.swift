@@ -29,7 +29,7 @@ final class RummyGameViewModel {
 
     // MARK: Center banner (all table feedback shares this one style)
 
-    enum BannerStyle { case info, warn, announce, verdict }
+    enum BannerStyle { case note, verdict }
     struct TableBanner: Equatable {
         let text: String
         let style: BannerStyle
@@ -76,6 +76,12 @@ final class RummyGameViewModel {
         syncHandOrder()
         scheduleTurnNudge()
         resumeBotsIfNeeded()
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["SHOW_MESSAGE_DEMO"] == "1" {
+            stripNotice = StripNotice(
+                text: "Laid 30 / 61 — throwing now costs +100", warn: true)
+        }
+        #endif
     }
 
     static func newGame(settings: SettingsStore, botLevel: BotLevel, store: GameStore) -> RummyGameViewModel {
@@ -483,7 +489,7 @@ final class RummyGameViewModel {
 
     // MARK: Banner
 
-    func showBanner(_ text: String, style: BannerStyle = .info,
+    func showBanner(_ text: String, style: BannerStyle = .note,
                     icon: String? = nil, duration: Double = 2.4) {
         showBanners([(TableBanner(text: text, style: style, icon: icon), duration)])
     }
@@ -512,26 +518,26 @@ final class RummyGameViewModel {
             switch action {
             case .declareIntent(true) where seat == proposer:
                 showBanners([
-                    (TableBanner(text: "\(name): let's play", style: .announce, icon: "play.fill"), 1.0),
+                    (TableBanner(text: "\(name): let's play", style: .note, icon: "play.fill"), 1.0),
                     (TableBanner(text: L10n.playVerdict, style: .verdict, icon: "play.fill"), 1.8),
                 ])
             case .declareIntent(true):
                 showBanners([
-                    (TableBanner(text: "\(name) wants to play", style: .announce, icon: "play.fill"), 1.2),
+                    (TableBanner(text: "\(name) wants to play", style: .note, icon: "play.fill"), 1.2),
                     (TableBanner(text: L10n.playVerdict, style: .verdict, icon: "play.fill"), 1.8),
                 ])
             case .declareIntent(false) where seat == proposer:
-                showBanner("\(name) said pass", style: .announce, icon: "hand.raised.fill", duration: 3.0)
+                showBanner("\(name) said pass", style: .note, icon: "hand.raised.fill", duration: 3.0)
             case .declareIntent(false) where resolvedToPass:
                 showBanners([
-                    (TableBanner(text: "\(name): pass too", style: .announce, icon: "hand.raised.fill"), 1.0),
+                    (TableBanner(text: "\(name): pass too", style: .note, icon: "hand.raised.fill"), 1.0),
                     (TableBanner(text: L10n.passVerdict, style: .verdict, icon: "hand.raised.fill"), 1.8),
                 ])
             case .declareIntent(false):
-                showBanner("\(name): pass too", style: .announce, icon: "hand.raised.fill", duration: 3.0)
+                showBanner("\(name): pass too", style: .note, icon: "hand.raised.fill", duration: 3.0)
             case .forcePass:
                 showBanners([
-                    (TableBanner(text: "\(name) forced the pass — doubles", style: .warn, icon: "hand.raised.fill"), 1.4),
+                    (TableBanner(text: "\(name) forced the pass — doubles", style: .note, icon: "hand.raised.fill"), 1.4),
                     (TableBanner(text: L10n.passVerdict, style: .verdict, icon: "hand.raised.fill"), 1.8),
                 ])
             default: break

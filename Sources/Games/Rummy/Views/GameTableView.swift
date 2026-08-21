@@ -64,6 +64,22 @@ struct GameTableView: View {
                         .allowsHitTesting(false)
                         .zIndex(50)
                 }
+                #if DEBUG
+                // Design review: launch with SHOW_MESSAGE_DEMO=1 to see one
+                // example of every message category at once.
+                if ProcessInfo.processInfo.environment["SHOW_MESSAGE_DEMO"] == "1" {
+                    VStack(spacing: 16) {
+                        CenterBannerView(banner: .init(
+                            text: "Hamadi took the throw", style: .note,
+                            icon: "hand.point.down.fill"))
+                        CenterBannerView(banner: .init(
+                            text: L10n.playVerdict, style: .verdict, icon: "play.fill"))
+                    }
+                    .position(x: geometry.size.width / 2, y: geometry.size.height * 0.36)
+                    .zIndex(60)
+                    .allowsHitTesting(false)
+                }
+                #endif
                 overlays
             }
             .animation(.cardSpring, value: viewModel.banner)
@@ -689,25 +705,11 @@ struct CenterBannerView: View {
             .padding(.vertical, 18)
             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
             .shadow(color: Theme.accent.opacity(0.35), radius: 16)
-        case .announce:
+        case .note:
             Label(banner.text, systemImage: banner.icon ?? "bubble.left.fill")
                 .font(.subheadline.weight(.bold))
                 .padding(.horizontal, 16)
                 .padding(.vertical, 9)
-                .background(.ultraThinMaterial, in: Capsule())
-                .foregroundStyle(.primary)
-        case .warn:
-            Label(banner.text, systemImage: banner.icon ?? "exclamationmark.circle.fill")
-                .font(.footnote.weight(.semibold))
-                .padding(.horizontal, 14)
-                .padding(.vertical, 7)
-                .background(.ultraThinMaterial, in: Capsule())
-                .foregroundStyle(.red)
-        case .info:
-            Label(banner.text, systemImage: banner.icon ?? "info.circle")
-                .font(.footnote.weight(.semibold))
-                .padding(.horizontal, 14)
-                .padding(.vertical, 7)
                 .background(.ultraThinMaterial, in: Capsule())
                 .foregroundStyle(.primary)
         }
