@@ -598,24 +598,26 @@ final class RummyGameViewModel {
             }
         }()
         if endedNow {
-            roundEndCurtain = true
+            // A closed round shows its score sheet right away — no
+            // announcement in between.
+            var announcement: String?
             switch state.phase {
             case .roundEnded(let result):
-                if let closer = result.closerSeat {
-                    showBanner("\(displayName(closer)) said it's done!",
-                               style: .verdict, icon: "crown.fill", duration: 2.0)
-                } else if let failed = result.deltas.firstIndex(of: 100) {
-                    showBanner("\(displayName(failed)) missed the count — +100",
-                               style: .verdict, icon: "exclamationmark.triangle.fill", duration: 2.0)
+                if result.closerSeat == nil, let failed = result.deltas.firstIndex(of: 100) {
+                    announcement = "\(displayName(failed)) missed the count — +100"
                 }
             case .matchEnded:
-                showBanner(L10n.gameOver, style: .verdict, icon: "trophy.fill", duration: 2.0)
+                announcement = L10n.gameOver
             default:
                 break
             }
-            Task { [weak self] in
-                try? await Task.sleep(for: .seconds(1.9))
-                self?.roundEndCurtain = false
+            if let announcement {
+                roundEndCurtain = true
+                showBanner(announcement, style: .verdict, duration: 2.0)
+                Task { [weak self] in
+                    try? await Task.sleep(for: .seconds(1.9))
+                    self?.roundEndCurtain = false
+                }
             }
         }
     }
