@@ -481,34 +481,36 @@ final class RummyGameViewModel {
             if !placed { loose.append(card) }
         }
 
-        // A joker bridges a two-gap at either end of a run.
-        if hasJoker {
-            var still: [Card] = []
-            for card in loose {
-                guard let suit = card.suit, let raw = card.rank?.rawValue else {
-                    still.append(card)
-                    continue
-                }
-                let displays = raw == 1 ? [14, 1] : [raw]
-                var placed = false
-                for index in runs.indices where runs[index].suit == suit && !placed {
-                    for value in displays {
-                        if value == runs[index].values.first! + 2 {
-                            runs[index].values.insert(value, at: 0)
-                        } else if value == runs[index].values.last! - 2 {
-                            runs[index].values.append(value)
-                        } else {
-                            continue
-                        }
-                        runs[index].members[value] = card
-                        placed = true
-                        break
-                    }
-                }
-                if !placed { still.append(card) }
+        // A two-gap at either end of a run always chains (one missing card);
+        // with a joker in hand even a three-gap does.
+        let maxEndGap = hasJoker ? 3 : 2
+        var still: [Card] = []
+        for card in loose {
+            guard let suit = card.suit, let raw = card.rank?.rawValue else {
+                still.append(card)
+                continue
             }
-            loose = still
+            let displays = raw == 1 ? [14, 1] : [raw]
+            var placed = false
+            for index in runs.indices where runs[index].suit == suit && !placed {
+                for value in displays {
+                    let top = runs[index].values.first!
+                    let bottom = runs[index].values.last!
+                    if value > top, value - top <= maxEndGap {
+                        runs[index].values.insert(value, at: 0)
+                    } else if value < bottom, bottom - value <= maxEndGap {
+                        runs[index].values.append(value)
+                    } else {
+                        continue
+                    }
+                    runs[index].members[value] = card
+                    placed = true
+                    break
+                }
+            }
+            if !placed { still.append(card) }
         }
+        loose = still
 
         // Strong section: combos by top card, descending inside; a mate
         // prints before its anchor when the run continues below it, after
