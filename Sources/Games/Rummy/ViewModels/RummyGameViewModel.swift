@@ -669,6 +669,28 @@ final class RummyGameViewModel {
         // get one more chance to attach beside them.
         loose = attachByRank(loose)
 
+        // With two jokers in hand, a leftover pair is a ready set (the pair
+        // plus joker twins) — it becomes a combo block placed by its rank,
+        // landing right after the jokers when it outranks the runs.
+        if jokers.count >= 2 {
+            var byRank: [Int: [Card]] = [:]
+            for card in loose {
+                byRank[sortRankKey(card), default: []].append(card)
+            }
+            var promoted = Set<Int>()
+            for (value, group) in byRank where group.count >= 2 {
+                let ordered = group.sorted {
+                    (suitIndex($0), $0.id) < (suitIndex($1), $1.id)
+                }
+                var run = ProtoRun(suit: ordered[0].suit ?? .spades, values: [value])
+                run.members[value] = ordered[0]
+                run.attachments[value] = Array(ordered.dropFirst())
+                runs.append(run)
+                for card in ordered { promoted.insert(card.id) }
+            }
+            loose.removeAll { promoted.contains($0.id) }
+        }
+
         // Strong section: combos by top card, descending inside; a mate
         // prints before its anchor when the run continues below it, after
         // when the anchor closes the run.
