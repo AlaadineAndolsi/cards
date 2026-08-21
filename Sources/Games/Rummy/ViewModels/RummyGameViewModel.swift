@@ -51,9 +51,10 @@ final class RummyGameViewModel {
     private(set) var dealFlights: [DealFlight] = []
     /// Pile count during the deal animation, ticking down from 108.
     private(set) var animatedPileCount: Int?
-    /// How many of the human's cards have "arrived" — the fan builds up
-    /// card by card following the pattern.
-    private(set) var dealtHandCount: Int?
+    /// Cards "arrived" so far per seat offset during the deal animation —
+    /// fans and counters build up card by card following the pattern.
+    private(set) var dealtCounts: [Int]?
+    var dealtHandCount: Int? { dealtCounts?[0] }
     private var dealTask: Task<Void, Never>?
 
     /// A bot's thrown card flying from its seat to the throw spot.
@@ -638,7 +639,7 @@ final class RummyGameViewModel {
         isDealAnimating = true
         dealFlights = flights
         animatedPileCount = 108
-        dealtHandCount = 0
+        dealtCounts = [Int](repeating: 0, count: state.players.count)
         dealTask?.cancel()
         dealTask = Task { [weak self] in
             var previous = 0.0
@@ -647,15 +648,13 @@ final class RummyGameViewModel {
                 previous = flight.delay
                 guard let self, !Task.isCancelled else { return }
                 self.animatedPileCount = 108 - index - 1
-                if flight.seatOffset == 0 {
-                    self.dealtHandCount = (self.dealtHandCount ?? 0) + 1
-                }
+                self.dealtCounts?[flight.seatOffset] += 1
             }
             try? await Task.sleep(for: .seconds(0.7))
             guard let self, !Task.isCancelled else { return }
             self.dealFlights = []
             self.animatedPileCount = nil
-            self.dealtHandCount = nil
+            self.dealtCounts = nil
             self.isDealAnimating = false
         }
     }

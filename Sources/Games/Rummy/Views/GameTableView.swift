@@ -215,6 +215,8 @@ struct GameTableView: View {
                     } else {
                         SeatView(
                             player: state.players[seatIndex],
+                            handCount: viewModel.dealtCounts?[offset]
+                                ?? state.players[seatIndex].hand.count,
                             isDealer: state.dealerSeat == seatIndex,
                             isActive: activeSeat == seatIndex)
                     }
@@ -444,7 +446,7 @@ struct GameTableView: View {
     /// Always-visible counters: hand size, locked-series totals, pending total.
     private var statusChips: some View {
         HStack(spacing: 8) {
-            Text("\(state.players[viewModel.humanSeat].hand.count)")
+            Text("\(viewModel.dealtHandCount ?? state.players[viewModel.humanSeat].hand.count)")
                 .font(.system(size: 13, weight: .heavy, design: .rounded))
                 .monospacedDigit()
                 .padding(.horizontal, 9)
@@ -614,9 +616,10 @@ struct DeckCenterView: View {
     var body: some View {
         VStack(spacing: 7) {
             ZStack {
-                // Two half-stacks that separate and merge on each shuffle.
+                // One pile at rest: the two halves overlay exactly and only
+                // separate for the brief shuffle riffle.
                 halfStack
-                    .offset(x: split ? -30 : -2.5, y: split ? -4 : -2.5)
+                    .offset(x: split ? -30 : 0, y: split ? -4 : 0)
                     .rotationEffect(.degrees(split ? -10 : 0))
                 halfStack
                     .offset(x: split ? 30 : 0, y: split ? 4 : 0)

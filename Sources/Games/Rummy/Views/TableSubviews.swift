@@ -3,6 +3,8 @@ import SwiftUI
 /// A bot seat: avatar, name, score chip, hand count, dealer badge, active ring.
 struct SeatView: View {
     let player: PlayerState
+    /// Shown count — during the deal animation it ticks up with the cards.
+    let handCount: Int
     let isDealer: Bool
     let isActive: Bool
 
@@ -40,8 +42,10 @@ struct SeatView: View {
                     .padding(.vertical, 1.5)
                     .background(Color.black.opacity(0.35), in: Capsule())
                     .foregroundStyle(Theme.accent)
-                Label("\(player.hand.count)", systemImage: "rectangle.portrait.on.rectangle.portrait.fill")
+                Label("\(handCount)", systemImage: "rectangle.portrait.on.rectangle.portrait.fill")
                     .font(.system(size: 7.5, weight: .semibold))
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
                     .foregroundStyle(.white.opacity(0.75))
             }
         }
