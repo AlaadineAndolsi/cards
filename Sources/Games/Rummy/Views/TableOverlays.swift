@@ -366,6 +366,7 @@ struct ScoreSheetView: View {
                 .foregroundStyle(Theme.accent)
             gestureRow("hand.tap", "Tap — select / unlock")
             gestureRow("lock.fill", "Long-press — lock a meld")
+            gestureRow("pin.fill", "Long-press a placeable card — reserve it for the melds")
             gestureRow("arrow.left.arrow.right", "Drag sideways — reorder")
             gestureRow("arrow.up", "Slide up — discard")
             gestureRow("arrow.up.square.fill", "Slide a meld up — lay down")

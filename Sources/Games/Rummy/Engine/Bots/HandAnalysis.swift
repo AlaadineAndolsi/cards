@@ -55,7 +55,11 @@ enum HandAnalysis {
         }
 
         // Sets: rank + distinct suits, optionally 1–2 jokers on missing suits.
+        // The deck holds two copies of every card: each copy (and each joker)
+        // is a distinct resource, so a variant is emitted per copy choice —
+        // two overlapping melds can then draw on the two copies independently.
         for (rankValue, suits) in byRank {
+            let rank = Rank(rawValue: rankValue)!
             let availableSuits = Array(suits.keys)
             let missingSuits = Suit.allCases.filter { !availableSuits.contains($0) }
             for realCount in 1...availableSuits.count {
@@ -63,20 +67,31 @@ enum HandAnalysis {
                     for jokerCount in 0...min(2, jokerIndices.count) {
                         let size = realCount + jokerCount
                         guard size >= 3, size <= Meld.maxSetSize, jokerCount <= missingSuits.count else { continue }
-                        var entries: [MeldEntry] = []
-                        var mask: UInt32 = 0
-                        for suit in combo {
-                            let index = suits[suit]!.first!
-                            entries.append(MeldEntry(card: hand[index], asRank: Rank(rawValue: rankValue)!, asSuit: suit))
-                            mask |= 1 << index
+                        for jokerCombo in combinations(of: jokerIndices, choose: jokerCount) {
+                            var jokerEntries: [MeldEntry] = []
+                            var jokerMask: UInt32 = 0
+                            for (j, index) in jokerCombo.enumerated() {
+                                jokerEntries.append(MeldEntry(
+                                    card: hand[index], asRank: rank, asSuit: missingSuits[j]))
+                                jokerMask |= 1 << index
+                            }
+                            func expand(_ position: Int, _ entries: [MeldEntry], _ mask: UInt32) {
+                                guard position < combo.count else {
+                                    addCandidate(
+                                        Meld(entries: entries + jokerEntries),
+                                        mask: mask | jokerMask, into: &result)
+                                    return
+                                }
+                                let suit = combo[position]
+                                for index in suits[suit]! {
+                                    expand(
+                                        position + 1,
+                                        entries + [MeldEntry(card: hand[index], asRank: rank, asSuit: suit)],
+                                        mask | (1 << index))
+                                }
+                            }
+                            expand(0, [], 0)
                         }
-                        for j in 0..<jokerCount {
-                            let index = jokerIndices[j]
-                            entries.append(MeldEntry(
-                                card: hand[index], asRank: Rank(rawValue: rankValue)!, asSuit: missingSuits[j]))
-                            mask |= 1 << index
-                        }
-                        addCandidate(Meld(entries: entries), mask: mask, into: &result)
                     }
                 }
             }
@@ -84,27 +99,40 @@ enum HandAnalysis {
         return result
     }
 
+    /// Emits every copy-choice variant of the run: both deck copies of a rank
+    /// (and each joker) are distinct resources, so two overlapping runs can
+    /// draw on different copies of the shared card.
     private static func appendRunCandidates(
         suit: Suit, sequence: [Int], ranks: [Int: [Int]],
         jokerIndices: [Int], hand: [Card], into result: inout [Candidate]
     ) {
-        var entries: [MeldEntry] = []
-        var mask: UInt32 = 0
-        var jokersUsed = 0
-        for rankValue in sequence {
-            if let index = ranks[rankValue]?.first {
-                entries.append(MeldEntry(card: hand[index], asRank: Rank(rawValue: rankValue)!, asSuit: suit))
-                mask |= 1 << index
-            } else {
-                guard jokersUsed < min(2, jokerIndices.count) else { return }
-                let index = jokerIndices[jokersUsed]
-                jokersUsed += 1
-                entries.append(MeldEntry(card: hand[index], asRank: Rank(rawValue: rankValue)!, asSuit: suit))
-                mask |= 1 << index
+        let jokerSlots = sequence.filter { ranks[$0] == nil }.count
+        guard jokerSlots <= min(2, jokerIndices.count) else { return }
+        guard sequence.count > jokerSlots else { return }  // at least one real card
+        for jokerCombo in combinations(of: jokerIndices, choose: jokerSlots) {
+            func expand(_ position: Int, _ jokerCursor: Int, _ entries: [MeldEntry], _ mask: UInt32) {
+                guard position < sequence.count else {
+                    addCandidate(Meld(entries: entries), mask: mask, into: &result)
+                    return
+                }
+                let rank = Rank(rawValue: sequence[position])!
+                if let indices = ranks[sequence[position]] {
+                    for index in indices {
+                        expand(
+                            position + 1, jokerCursor,
+                            entries + [MeldEntry(card: hand[index], asRank: rank, asSuit: suit)],
+                            mask | (1 << index))
+                    }
+                } else {
+                    let index = jokerCombo[jokerCursor]
+                    expand(
+                        position + 1, jokerCursor + 1,
+                        entries + [MeldEntry(card: hand[index], asRank: rank, asSuit: suit)],
+                        mask | (1 << index))
+                }
             }
+            expand(0, 0, [], 0)
         }
-        guard entries.count > jokersUsed else { return }  // at least one real card
-        addCandidate(Meld(entries: entries), mask: mask, into: &result)
     }
 
     private static func addCandidate(_ meld: Meld, mask: UInt32, into result: inout [Candidate]) {
@@ -168,9 +196,11 @@ enum HandAnalysis {
     }
 
     /// Melds covering exactly `hand.count - 1` cards (everything but the final
-    /// throw), or nil if closing is impossible right now.
+    /// throw), or nil if closing is impossible right now. The cap matters:
+    /// without it a cover of the whole hand outranks the count-1 cover and
+    /// hides a perfectly good close.
     static func closingMelds(hand: [Card]) -> [Meld]? {
-        let partition = bestPartition(hand: hand, maximizeCoverage: true)
+        let partition = bestPartition(hand: hand, maximizeCoverage: true, maxCovered: hand.count - 1)
         guard partition.coveredCount >= Meld.minSize,
               partition.coveredCount == hand.count - 1 else { return nil }
         return partition.melds

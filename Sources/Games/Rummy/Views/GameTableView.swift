@@ -55,8 +55,12 @@ struct GameTableView: View {
                                 viewModel.popupPickedCardID = nil
                             }
                         }
-                    MeldPreviewOverlay(viewModel: viewModel)
-                        .position(x: geometry.size.width / 2, y: geometry.size.height * 0.40)
+                    MeldPreviewOverlay(
+                        viewModel: viewModel,
+                        panelSize: CGSize(
+                            width: geometry.size.width - 24,
+                            height: geometry.size.height * 0.80))
+                        .position(x: geometry.size.width / 2, y: geometry.size.height * 0.45)
                         .transition(.scale(scale: 0.85).combined(with: .opacity))
                         .zIndex(40)
                 }
@@ -148,9 +152,10 @@ struct GameTableView: View {
                         .foregroundStyle(turnLine.hasPrefix("You") ? Theme.accent : .primary)
                         .contentTransition(.opacity)
                 }
-                Text("\(L10n.round) \(state.roundNumber)  ·  \(L10n.required): \(state.requiredLayDown)")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                // Quiet labels, loud values: the round and required numbers
+                // read at a glance in the same gold heavy digits as the
+                // table's count tags.
+                roundLine
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 6)
@@ -170,6 +175,19 @@ struct GameTableView: View {
         .padding(.horizontal, 14)
         .padding(.top, 6)
         .foregroundStyle(.primary)
+    }
+
+    private var roundLine: some View {
+        let label = Font.system(size: 11, weight: .semibold)
+        let number = Font.system(size: 13, weight: .heavy, design: .rounded)
+        return (
+            Text("\(L10n.round) ").font(label).foregroundStyle(.secondary)
+            + Text("\(state.roundNumber)").font(number).foregroundStyle(Theme.accent)
+            + Text("  ·  ").font(label).foregroundStyle(.secondary)
+            + Text("\(L10n.required): ").font(label).foregroundStyle(.secondary)
+            + Text("\(state.requiredLayDown)").font(number).foregroundStyle(Theme.accent)
+        )
+        .monospacedDigit()
     }
 
     // MARK: Geometry
@@ -467,25 +485,31 @@ struct GameTableView: View {
 
     private var bottomArea: some View {
         VStack(spacing: 4) {
-            // The totals line sits a little higher, above a reserved strip
-            // where errors and hints appear — between the totals and the
-            // cards, without pushing the totals around.
-            statusChips
-            // Equal breathing room above and below the strip — the gap under
-            // it matches a selected card popping up out of the fan.
+            // Errors and hints appear in a reserved strip above the cards,
+            // with the totals row tucked UNDER the fan so score and counts
+            // stay visible without sitting over the messages.
             ZStack { hintArea }
                 .frame(height: 34)
                 .padding(.top, 20)
                 .animation(.cardSpring, value: viewModel.stripNotice)
                 .animation(.cardSpring, value: viewModel.lastError)
             ArcHandView(viewModel: viewModel, namespace: cardSpace, reduceMotion: reduceMotion)
+            statusChips
         }
         .padding(.bottom, 2)
     }
 
-    /// Always-visible counters: hand size, locked-series totals, pending total.
+    /// Always-visible counters: score, hand size, locked total, pending
+    /// total.
     private var statusChips: some View {
         HStack(spacing: 8) {
+            Text("\(state.players[viewModel.humanSeat].totalScore)")
+                .font(.system(size: 13, weight: .heavy, design: .rounded))
+                .monospacedDigit()
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4)
+                .background(Color.black.opacity(0.45), in: Capsule())
+                .foregroundStyle(Theme.accent)
             Text("\(viewModel.dealtHandCount ?? state.players[viewModel.humanSeat].hand.count)")
                 .font(.system(size: 13, weight: .heavy, design: .rounded))
                 .monospacedDigit()
@@ -493,20 +517,22 @@ struct GameTableView: View {
                 .padding(.vertical, 4)
                 .background(Color.black.opacity(0.45), in: Capsule())
                 .foregroundStyle(.white)
-            ForEach(Array(viewModel.lockedValues.enumerated()), id: \.offset) { _, value in
-                Text("\(value)")
-                    .font(.system(size: 12, weight: .bold, design: .rounded))
-                    .padding(.horizontal, 8)
+            if viewModel.lockedTotal > 0 {
+                Text("\(viewModel.lockedTotal)")
+                    .font(.system(size: 13, weight: .heavy, design: .rounded))
+                    .monospacedDigit()
+                    .padding(.horizontal, 9)
                     .padding(.vertical, 4)
                     .background(Color.green.opacity(0.75), in: Capsule())
                     .foregroundStyle(.white)
             }
-            if viewModel.lockedTotal > 0 {
-                Text("Σ \(viewModel.lockedTotal)")
-                    .font(.system(size: 12, weight: .heavy, design: .rounded))
-                    .padding(.horizontal, 8)
+            if !viewModel.lockedPlaceables.isEmpty {
+                Text("\(viewModel.lockedPlaceables.count)")
+                    .font(.system(size: 13, weight: .heavy, design: .rounded))
+                    .monospacedDigit()
+                    .padding(.horizontal, 9)
                     .padding(.vertical, 4)
-                    .background(Color.green.opacity(0.35), in: Capsule())
+                    .background(Theme.placeableLock.opacity(0.75), in: Capsule())
                     .foregroundStyle(.white)
             }
             if let pending = viewModel.pendingLayDownValue {
@@ -519,6 +545,7 @@ struct GameTableView: View {
             }
         }
         .animation(.cardSpring, value: viewModel.lockedValues)
+        .animation(.cardSpring, value: viewModel.lockedPlaceables)
     }
 
     /// Feedback strip between the chips row and the hand — hints and errors
@@ -559,30 +586,21 @@ struct GameTableView: View {
     }
 
     private func handleMeldTap(_ tableMeld: TableMeld) {
-        // With exactly one card selected on your turn, tapping a meld appends.
+        // With exactly one card selected on your turn, tapping a meld places
+        // it directly — an append, or a joker swap when the card matches.
         if viewModel.isHumanTurn, case .awaitingThrow = viewModel.humanStage,
            viewModel.selectedCardIDs.count == 1,
            let card = state.players[viewModel.humanSeat].hand.first(where: {
                viewModel.selectedCardIDs.contains($0.id)
-           }) {
-            let entry: MeldEntry?
-            if card.isJoker {
-                entry = tableMeld.meld.jokerEntryToExtend(joker: card)
-            } else if let rank = card.rank, let suit = card.suit {
-                entry = MeldEntry(card: card, asRank: rank, asSuit: suit)
-            } else {
-                entry = nil
+           }),
+           viewModel.placementTargets(for: card).contains(tableMeld.id) {
+            withAnimation(reduceMotion ? .default : .cardSpring) {
+                viewModel.placeCard(card, on: tableMeld.id)
             }
-            if let entry {
-                Haptics.action()
-                withAnimation(reduceMotion ? .default : .cardSpring) {
-                    viewModel.apply(.appendCard(entry, meldID: tableMeld.id))
-                }
-                return
-            }
+            return
         }
-        // Otherwise the tap opens the same enlarged-melds popup used while
-        // dragging — read, tap-append, joker swap, or drag a card over it.
+        // Otherwise the tap opens the big placement window — read the melds,
+        // tap or drag a card onto one, or drop a card on a joker to swap it.
         withAnimation(.cardSpring) { viewModel.meldPreviewShown = true }
     }
 
@@ -698,10 +716,10 @@ struct DeckCenterView: View {
                     .contentTransition(.numericText(countsDown: true))
             }
         }
-        .font(.system(size: 14, weight: .heavy, design: .rounded))
+        .font(.system(size: 13, weight: .heavy, design: .rounded))
         .monospacedDigit()
-        .padding(.horizontal, 10)
-        .padding(.vertical, 3)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 4)
         .background(Color.black.opacity(0.45), in: Capsule())
         .foregroundStyle(Theme.accent)
     }
@@ -813,126 +831,292 @@ struct LayDownRevealView: View {
     }
 }
 
-/// The one melds popup: opened by tapping any meld, or by holding a dragged
-/// card over the lays. Big cards to read, drop or tap-append a card, swap a
-/// joker. Frames are reported globally for hit-testing drag drops.
+/// The placement window: opened by tapping any meld, or by holding a dragged
+/// card over the lays. Your placeable cards sit big on top; below, every
+/// player's melds are grouped under their name. Drag a card onto a meld to
+/// extend it — drop it on a matching joker to take the joker's seat and send
+/// the joker to your hand. Meld frames are reported globally so a card
+/// dragged straight from the hand fan drops here too.
 struct MeldPreviewOverlay: View {
     @State var viewModel: RummyGameViewModel
+    let panelSize: CGSize
+
+    /// A joker's seat on the table, for precise drop-to-swap hit testing.
+    private struct JokerSpot {
+        let meldID: UUID
+        let rank: Rank
+        let suit: Suit
+        var frame: CGRect
+    }
+
+    /// Live drag: the candidate card under the finger follows it for real —
+    /// released over a meld it plays there, anywhere else it springs back.
+    @State private var dragCard: Card?
+    @State private var dragLocation: CGPoint = .zero   // global
+    @State private var dragOrigin: CGPoint = .zero     // global center of the slot
+    @State private var dragReturning = false
+    /// Global frames of the candidate slots (spring-back destinations).
+    @State private var candidateFrames: [Int: CGRect] = [:]
+    /// Global frames of the table jokers, keyed by joker card id.
+    @State private var jokerFrames: [Int: JokerSpot] = [:]
+
+    /// The width rows and the candidate strip can center within: the panel
+    /// minus its own padding.
+    private var contentWidth: CGFloat { panelSize.width - 24 }
 
     var body: some View {
-        VStack(spacing: 8) {
-            ScrollView {
-                VStack(spacing: 8) {
-                    ForEach(viewModel.state.tableMelds) { tableMeld in
-                        meldRow(tableMeld)
-                    }
-                }
-            }
-            .frame(maxHeight: 400)
-            .fixedSize(horizontal: false, vertical: true)
-            // Your playable cards: tap one to place it (when several series
-            // fit, it waits highlighted for you to tap the target).
-            if !viewModel.popupCandidates.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 5) {
-                        ForEach(viewModel.popupCandidates, id: \.id) { card in
-                            CardView(card: card)
-                                .frame(width: 44)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 5)
-                                        .strokeBorder(
-                                            viewModel.popupPickedCardID == card.id
-                                                ? Theme.accent : .clear,
-                                            lineWidth: 2.5))
-                                .onTapGesture { viewModel.popupPick(card) }
+        GeometryReader { geometry in
+            let panelOrigin = geometry.frame(in: .global).origin
+            VStack(spacing: 10) {
+                // Sticky header: your placeable cards stay put while the meld
+                // list underneath scrolls through every player.
+                candidatesSection
+                Divider().overlay(Color.white.opacity(0.25))
+                ScrollView {
+                    VStack(spacing: 16) {
+                        ForEach(ownerSeats, id: \.self) { seat in
+                            ownerSection(seat)
                         }
                     }
-                    .padding(.horizontal, 4)
+                    .frame(maxWidth: .infinity)
+                    .padding(.bottom, 4)
                 }
-                .padding(.top, 4)
-                Text("Tap a card to place it on a meld")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            } else {
-                Text(viewModel.canAppendToTable
-                     ? "No card in your hand fits these melds"
-                     : "Lay down first to add cards here")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .padding(12)
+            .overlay {
+                // The card in flight, riding the finger.
+                if let card = dragCard {
+                    CardView(card: card)
+                        .frame(width: 62)
+                        .shadow(color: .black.opacity(0.45), radius: 8, y: 5)
+                        .position(x: dragLocation.x - panelOrigin.x,
+                                  y: dragLocation.y - panelOrigin.y)
+                        .allowsHitTesting(false)
+                }
+            }
+        }
+        .frame(width: panelSize.width, height: panelSize.height)
+        // Opaque enough that the table underneath never bleeds through the
+        // rows — this window reads as its own screen.
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+        .background(Color.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 18))
+    }
+
+    /// Seats that have melds on the table: you first, then around the table.
+    private var ownerSeats: [Int] {
+        let count = viewModel.state.players.count
+        return (0..<count).map { (viewModel.humanSeat + $0) % count }.filter { seat in
+            viewModel.state.tableMelds.contains { $0.ownerSeat == seat }
+        }
+    }
+
+    // MARK: Your placeable cards
+
+    @ViewBuilder
+    private var candidatesSection: some View {
+        if viewModel.popupCandidates.isEmpty {
+            Text(viewModel.canAppendToTable
+                 ? "No card in your hand plays on these melds"
+                 : "Placing opens on your turn, after you draw")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(.top, 2)
+        } else {
+            VStack(spacing: 5) {
+                let candidates = viewModel.popupCandidates
+                // Adaptive width: the whole strip always fits (no scroll), so
+                // an immediate finger-drag never fights a scroll view.
+                let cardWidth = min(
+                    58,
+                    (contentWidth - 8 - CGFloat(candidates.count - 1) * 6)
+                        / CGFloat(max(candidates.count, 1)))
+                HStack(spacing: 6) {
+                    ForEach(candidates, id: \.id) { card in
+                        candidateCard(card, width: cardWidth)
+                    }
+                }
+                .padding(.horizontal, 4)
+                .padding(.vertical, 3)
+                .frame(maxWidth: .infinity)
+                Text("Drag a card onto a meld — or tap it, then tap the target")
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(10)
-        .background(Color.black.opacity(0.25), in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private func candidateCard(_ card: Card, width: CGFloat) -> some View {
+        CardView(card: card)
+            .frame(width: width)
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(
+                        viewModel.popupPickedCardID == card.id
+                            ? Theme.accent
+                            : (viewModel.lockedPlaceables.contains(card.id)
+                                ? Theme.placeableLock : .clear),
+                        lineWidth: 2.5))
+            // The slot empties while its card rides the finger.
+            .opacity(dragCard?.id == card.id ? 0 : 1)
+            .background(
+                GeometryReader { proxy in
+                    Color.clear
+                        .onAppear { candidateFrames[card.id] = proxy.frame(in: .global) }
+                        .onChange(of: proxy.frame(in: .global)) { _, frame in
+                            candidateFrames[card.id] = frame
+                        }
+                })
+            .onTapGesture { viewModel.popupPick(card) }
+            .gesture(
+                DragGesture(minimumDistance: 5, coordinateSpace: .global)
+                    .onChanged { value in
+                        if dragCard?.id != card.id {
+                            dragCard = card
+                            dragReturning = false
+                            let slot = candidateFrames[card.id]
+                            dragOrigin = slot.map { CGPoint(x: $0.midX, y: $0.midY) }
+                                ?? value.startLocation
+                        }
+                        guard !dragReturning else { return }
+                        dragLocation = value.location
+                    }
+                    .onEnded { value in
+                        handleDrop(card, at: value.location)
+                    })
+    }
+
+    // MARK: Drop resolution
+
+    private func handleDrop(_ card: Card, at location: CGPoint) {
+        // A matching joker's own seat wins: release right on it to swap.
+        if let spot = jokerFrames.values.first(where: {
+            $0.frame.insetBy(dx: -8, dy: -8).contains(location)
+        }), card.rank == spot.rank, card.suit == spot.suit,
+           viewModel.swapMelds(for: card).contains(spot.meldID) {
+            dragCard = nil
+            withAnimation(.cardSpring) {
+                viewModel.swapJoker(with: card, in: spot.meldID, keepPopup: true)
+            }
+            return
+        }
+        // Anywhere on a meld the card plays on: place it (append or swap).
+        if let target = viewModel.meldDropFrames.first(where: {
+            $0.value.insetBy(dx: -8, dy: -8).contains(location)
+        }), viewModel.placementTargets(for: card).contains(target.key) {
+            dragCard = nil
+            withAnimation(.cardSpring) {
+                viewModel.placeCard(card, on: target.key, keepPopup: true)
+            }
+            return
+        }
+        // No fit under the finger: the card springs back to its slot.
+        dragReturning = true
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+            dragLocation = dragOrigin
+        }
+        Task {
+            try? await Task.sleep(for: .seconds(0.30))
+            dragCard = nil
+            dragReturning = false
+        }
+    }
+
+    // MARK: Melds by player
+
+    private func ownerSection(_ seat: Int) -> some View {
+        VStack(spacing: 6) {
+            Text(viewModel.displayName(seat))
+                .font(.footnote.weight(.bold))
+                .foregroundStyle(seat == viewModel.humanSeat ? Theme.accent : .white.opacity(0.9))
+                .frame(maxWidth: .infinity)
+            ForEach(viewModel.state.tableMelds.filter { $0.ownerSeat == seat }) { tableMeld in
+                meldRow(tableMeld)
+            }
+        }
     }
 
     private func meldRow(_ tableMeld: TableMeld) -> some View {
-        HStack(spacing: 3) {
-            ForEach(tableMeld.meld.displayEntries, id: \.card.id) { entry in
-                VStack(spacing: 2) {
-                    CardView(card: entry.card)
-                        .frame(width: 44)
-                    if entry.card.isJoker {
-                        Text("as \(entry.asRank.label)\(entry.asSuit.symbol)")
-                            .font(.system(size: 8, weight: .bold))
-                            .foregroundStyle(Theme.accent)
-                    }
+        // Long runs scroll sideways inside their row instead of clipping.
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 4) {
+                ForEach(tableMeld.meld.displayEntries, id: \.card.id) { entry in
+                    entryView(entry, in: tableMeld)
                 }
             }
-            if let swap = swapOffer(for: tableMeld) {
-                Button {
-                    Haptics.action()
-                    withAnimation(.cardSpring) {
-                        viewModel.apply(.swapJoker(meldID: tableMeld.id, realCard: swap))
-                    }
-                } label: {
-                    Image(systemName: "arrow.triangle.2.circlepath")
-                        .font(.system(size: 13, weight: .bold))
-                        .frame(width: 30, height: 30)
-                        .background(Theme.accent, in: Circle())
-                        .foregroundStyle(.black)
-                }
-                .buttonStyle(.plain)
-            }
+            .padding(7)
+            // Centers the meld while it fits; scrolls once it doesn't.
+            .frame(minWidth: contentWidth)
         }
-        .padding(6)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
-        .background(
-            GeometryReader { proxy in
-                Color.clear
-                    .onAppear {
-                        viewModel.meldDropFrames[tableMeld.id] = proxy.frame(in: .global)
-                    }
-                    .onChange(of: proxy.frame(in: .global)) { _, frame in
-                        viewModel.meldDropFrames[tableMeld.id] = frame
-                    }
-            })
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .background(frameReporter(tableMeld.id))
         .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .strokeBorder(pickedFits(tableMeld.id) ? Theme.accent : .clear, lineWidth: 2))
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(highlighted(tableMeld.id) ? Theme.accent : .clear, lineWidth: 2.5))
         .onTapGesture { viewModel.popupTapMeld(tableMeld.id) }
     }
 
-    /// True when the picked popup card fits this meld — its drop target glows.
-    private func pickedFits(_ meldID: UUID) -> Bool {
+    private func entryView(_ entry: MeldEntry, in tableMeld: TableMeld) -> some View {
+        CardView(card: entry.card)
+            .frame(width: 50)
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(
+                        jokerTargeted(entry) ? Theme.accent : .clear, lineWidth: 2.5))
+            .background(
+                Group {
+                    if entry.card.isJoker {
+                        // The joker's seat is a precise drop target for its
+                        // real card — track its frame while it's on screen.
+                        GeometryReader { proxy in
+                            Color.clear
+                                .onAppear {
+                                    jokerFrames[entry.card.id] = JokerSpot(
+                                        meldID: tableMeld.id, rank: entry.asRank,
+                                        suit: entry.asSuit, frame: proxy.frame(in: .global))
+                                }
+                                .onChange(of: proxy.frame(in: .global)) { _, frame in
+                                    jokerFrames[entry.card.id]?.frame = frame
+                                }
+                                .onDisappear { jokerFrames.removeValue(forKey: entry.card.id) }
+                        }
+                    }
+                })
+    }
+
+    /// The joker's seat glows while the finger carries its real card over it.
+    private func jokerTargeted(_ entry: MeldEntry) -> Bool {
+        guard entry.card.isJoker, let card = dragCard, !dragReturning,
+              card.rank == entry.asRank, card.suit == entry.asSuit,
+              let spot = jokerFrames[entry.card.id] else { return false }
+        return spot.frame.insetBy(dx: -8, dy: -8).contains(dragLocation)
+    }
+
+    /// A meld glows while it is a live target: under the finger with a card
+    /// that plays on it, or a valid destination for the tap-picked card.
+    private func highlighted(_ meldID: UUID) -> Bool {
+        if let card = dragCard, !dragReturning,
+           let frame = viewModel.meldDropFrames[meldID],
+           frame.insetBy(dx: -8, dy: -8).contains(dragLocation),
+           viewModel.placementTargets(for: card).contains(meldID) {
+            return true
+        }
         guard let pickedID = viewModel.popupPickedCardID,
               let card = viewModel.humanHand.first(where: { $0.id == pickedID })
         else { return false }
-        return viewModel.fittingMelds(for: card).contains(meldID)
+        return viewModel.placementTargets(for: card).contains(meldID)
     }
 
-    /// The real card in hand that could free this meld's joker (after lay-down).
-    private func swapOffer(for tableMeld: TableMeld) -> Card? {
-        let state = viewModel.state
-        guard viewModel.isHumanTurn, case .awaitingThrow = viewModel.humanStage,
-              state.players[viewModel.humanSeat].hasLaidDown else { return nil }
-        for entry in tableMeld.meld.entries where entry.card.isJoker {
-            if let real = state.players[viewModel.humanSeat].hand.first(where: {
-                $0.rank == entry.asRank && $0.suit == entry.asSuit
-            }) {
-                return real
-            }
+    private func frameReporter(_ meldID: UUID) -> some View {
+        GeometryReader { proxy in
+            Color.clear
+                .onAppear {
+                    viewModel.meldDropFrames[meldID] = proxy.frame(in: .global)
+                }
+                .onChange(of: proxy.frame(in: .global)) { _, frame in
+                    viewModel.meldDropFrames[meldID] = frame
+                }
         }
-        return nil
     }
 }
 

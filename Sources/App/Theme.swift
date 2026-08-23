@@ -5,6 +5,9 @@ import UIKit
 /// card frames, glassy overlays, SF typography.
 enum Theme {
     static let accent = Color(red: 0xC7 / 255.0, green: 0x89 / 255.0, blue: 0x1F / 255.0)
+    /// Lock color for a single card reserved for the table melds — clearly
+    /// apart from the green series lock and the amber selection.
+    static let placeableLock = Color(red: 0.25, green: 0.68, blue: 0.90)
 
     // The app is forced dark at the root (no theme variants), so the dark
     // tuple is what ships; the light tuple only remains as a fallback.

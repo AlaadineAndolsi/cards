@@ -152,6 +152,24 @@ final class RummyGameViewModel {
 
     var lockedCardIDs: Set<Int> { Set(lockedSeries.flatMap { $0 }) }
 
+    /// Single cards reserved for the table: they play on a meld (extend it,
+    /// or free its joker) and wear their own lock color in the fan —
+    /// distinct from the green series lock. In lock order: they group at the
+    /// left of the hand, right after the locked series.
+    private(set) var lockedPlaceables: [Int] = []
+
+    /// The card plays on the table: it extends a meld, or a joker in one
+    /// plays exactly as this card (a swap seat is waiting for it).
+    func isPlaceable(_ card: Card) -> Bool {
+        if !fittingMelds(for: card).isEmpty { return true }
+        guard let rank = card.rank, let suit = card.suit else { return false }
+        return state.tableMelds.contains { tableMeld in
+            tableMeld.meld.entries.contains {
+                $0.card.isJoker && $0.asRank == rank && $0.asSuit == suit
+            }
+        }
+    }
+
     var lockedValues: [Int] {
         lockedMelds.map { (try? $0.validatedThresholdValue()) ?? 0 }
     }
@@ -171,16 +189,41 @@ final class RummyGameViewModel {
     }
 
     /// Long-press on a card locks the current selection as series (adding the
-    /// pressed card to the selection if needed).
+    /// pressed card to the selection if needed). A lone placeable card locks
+    /// as a table reservation instead — its own color, unlocked by a tap.
     func longPressLock(_ card: Card) {
         guard !lockedCardIDs.contains(card.id) else { return }
+        if selectedCardIDs.isEmpty || selectedCardIDs == [card.id],
+           !lockedPlaceables.contains(card.id), isPlaceable(card) {
+            Haptics.action()
+            selectedCardIDs = []
+            lockedPlaceables.append(card.id)
+            rebuildHandOrder()
+            applySortIfActive()
+            return
+        }
         if !selectedCardIDs.contains(card.id) { selectedCardIDs.insert(card.id) }
         if selectionAsPartition != nil {
             lockSelection()
-        } else {
-            Haptics.warning()
-            showNotice("Selection isn't a valid meld", warn: true, duration: 1.8)
+            return
         }
+        // Not a series, but every selected card plays on the table:
+        // the whole selection locks as placeable reservations.
+        let picked = humanHand.filter {
+            selectedCardIDs.contains($0.id) && !lockedCardIDs.contains($0.id)
+        }
+        if !picked.isEmpty, picked.allSatisfy({ isPlaceable($0) }) {
+            Haptics.action()
+            for id in picked.map(\.id) where !lockedPlaceables.contains(id) {
+                lockedPlaceables.append(id)
+            }
+            selectedCardIDs = []
+            rebuildHandOrder()
+            applySortIfActive()
+            return
+        }
+        Haptics.warning()
+        showNotice("Selection isn't a valid meld", warn: true, duration: 1.8)
     }
 
     /// Placing into table melds is always possible on your throw step — the
@@ -284,7 +327,9 @@ final class RummyGameViewModel {
     }
 
     private func rebuildHandOrder() {
-        let locked = lockedSeries.flatMap { $0 }
+        // Left edge of the fan: locked series first, then the reserved
+        // placeable cards, then everything else in its current order.
+        let locked = lockedSeries.flatMap { $0 } + lockedPlaceables
         handOrder = locked + humanHand.map(\.id).filter { !locked.contains($0) }
     }
 
@@ -296,6 +341,7 @@ final class RummyGameViewModel {
             lockedSeries.remove(at: index)
             lockedMelds.remove(at: index)
         }
+        lockedPlaceables = lockedPlaceables.filter { handIDs.contains($0) }
     }
 
     // MARK: Pending lay-down (confirmed only by the throw)
@@ -306,7 +352,13 @@ final class RummyGameViewModel {
     var handHint: (text: String, warn: Bool)? {
         guard isHumanTurn else { return nil }
         let player = state.players[humanSeat]
-        guard case .awaitingThrow = humanStage else { return nil }
+        guard case .awaitingThrow(_, let pendingJoker) = humanStage else { return nil }
+        if pendingJoker != nil {
+            if player.hand.count == 1 {
+                return ("Discard the joker to go out!", false)
+            }
+            return ("Place the freed joker on a meld to end your turn", false)
+        }
         if let pending = player.pendingLayDownValue, !player.hasLaidDown {
             if player.hand.count == 1 {
                 return ("Discard your last card to go out!", false)
@@ -330,10 +382,71 @@ final class RummyGameViewModel {
     /// Card picked inside the melds popup, waiting for a target meld.
     var popupPickedCardID: Int?
 
-    /// Hand cards that currently fit at least one meld on the table.
+    /// Hand cards that can currently be placed somewhere on the table:
+    /// they extend a meld, or they free a joker by taking its place.
     var popupCandidates: [Card] {
         guard canAppendToTable else { return [] }
-        return humanHand.filter { !fittingMelds(for: $0).isEmpty }
+        return humanHand.filter {
+            !fittingMelds(for: $0).isEmpty || !swapMelds(for: $0).isEmpty
+        }
+    }
+
+    /// Joker swaps share the append window (your throw step) but pause while
+    /// a freed joker is still waiting to be replayed.
+    var swapAllowed: Bool {
+        if case .awaitingThrow(_, pendingJoker: nil) = humanStage { return canAppendToTable }
+        return false
+    }
+
+    /// Melds where a joker plays exactly as this card, so the card can take
+    /// its place and free the joker. Only offered when the freed joker could
+    /// be replayed by extending some meld — a swap must never strand a joker
+    /// the turn can't end with.
+    func swapMelds(for card: Card) -> [UUID] {
+        guard swapAllowed, let rank = card.rank, let suit = card.suit else { return [] }
+        return state.tableMelds.compactMap { tableMeld in
+            guard let entryIndex = tableMeld.meld.entries.firstIndex(where: {
+                $0.card.isJoker && $0.asRank == rank && $0.asSuit == suit
+            }) else { return nil }
+            let joker = tableMeld.meld.entries[entryIndex].card
+            var swapped = tableMeld.meld
+            swapped.entries[entryIndex].card = card
+            let jokerReplayable = state.tableMelds.contains { other in
+                let meld = other.id == tableMeld.id ? swapped : other.meld
+                return meld.entries.count < Meld.maxRunSize
+                    && meld.jokerEntryToExtend(joker: joker) != nil
+            }
+            return jokerReplayable ? tableMeld.id : nil
+        }
+    }
+
+    /// Everywhere this card can go right now: appends first, then swaps.
+    func placementTargets(for card: Card) -> [UUID] {
+        var targets = fittingMelds(for: card)
+        for id in swapMelds(for: card) where !targets.contains(id) {
+            targets.append(id)
+        }
+        return targets
+    }
+
+    /// Places a hand card onto a table meld: extend it when the card fits,
+    /// otherwise take a joker's place (the joker comes back to the hand).
+    func placeCard(_ card: Card, on meldID: UUID, keepPopup: Bool = false) {
+        if fittingMelds(for: card).contains(meldID) {
+            appendCard(card, to: meldID, keepPopup: keepPopup)
+        } else if swapMelds(for: card).contains(meldID) {
+            swapJoker(with: card, in: meldID, keepPopup: keepPopup)
+        } else {
+            lastError = .cannotAppendHere
+            Haptics.warning()
+        }
+    }
+
+    /// The real card takes the joker's seat in the meld; the joker flies to
+    /// the hand and must be replayed this turn.
+    func swapJoker(with card: Card, in meldID: UUID, keepPopup: Bool = false) {
+        Haptics.action()
+        apply(.swapJoker(meldID: meldID, realCard: card), keepMeldPreview: keepPopup)
     }
 
     /// The melds this card could legally extend right now.
@@ -354,31 +467,31 @@ final class RummyGameViewModel {
     }
 
     /// Tap one of your cards in the popup: places it straight away when only
-    /// one meld fits, otherwise waits for you to tap the target meld.
+    /// one meld takes it, otherwise waits for you to tap the target meld.
     func popupPick(_ card: Card) {
         Haptics.tap()
         if popupPickedCardID == card.id {
             popupPickedCardID = nil
             return
         }
-        let fits = fittingMelds(for: card)
-        if fits.count == 1 {
+        let targets = placementTargets(for: card)
+        if targets.count == 1 {
             popupPickedCardID = nil
-            appendCard(card, to: fits[0], keepPopup: true)
+            placeCard(card, on: targets[0], keepPopup: true)
         } else {
             popupPickedCardID = card.id
         }
     }
 
     /// Tap a meld in the popup: places the picked card (or the single
-    /// selected hand card) onto it.
+    /// selected hand card) onto it — append or joker swap, whichever fits.
     func popupTapMeld(_ id: UUID) {
         let picked = humanHand.first { $0.id == popupPickedCardID }
             ?? (selectedCardIDs.count == 1
                 ? humanHand.first { selectedCardIDs.contains($0.id) } : nil)
         guard let card = picked else { return }
         popupPickedCardID = nil
-        appendCard(card, to: id, keepPopup: true)
+        placeCard(card, on: id, keepPopup: true)
     }
 
     /// Appends a hand card to a table meld (popup, tap or hover-drop).
@@ -423,7 +536,13 @@ final class RummyGameViewModel {
             }
             syncHandOrder()
             pruneLocks()
-            applySortIfActive()  // fresh draws slot straight into the active sort
+            if activeSort != nil {
+                applySortIfActive()  // fresh draws slot straight into the active sort
+            } else {
+                // A manual drag only switched the FULL sort off — purchases
+                // keep slotting in beside their sorted neighbor.
+                slotFreshCards(addedSince: before)
+            }
             if case .deal = action { startDealHold() }
             if case .drawFromPile = action,
                let drawn = state.players[humanSeat].hand.last,
@@ -446,6 +565,14 @@ final class RummyGameViewModel {
         // Tapping a locked card unlocks its series.
         if lockedCardIDs.contains(card.id) {
             unlockSeries(containing: card.id)
+            return
+        }
+        // Tapping a reserved placeable card releases the reservation.
+        if lockedPlaceables.contains(card.id) {
+            Haptics.tap()
+            lockedPlaceables.removeAll { $0 == card.id }
+            rebuildHandOrder()
+            applySortIfActive()
             return
         }
         Haptics.tap()
@@ -481,16 +608,66 @@ final class RummyGameViewModel {
     /// The single active sort. It stays applied — fresh draws slot into
     /// place — until a manual drag clears it.
     private(set) var activeSort: SortMode?
+    /// The rule fresh purchases keep following after a manual drag switched
+    /// the full sort off. Only explicitly toggling the sort off clears it.
+    private(set) var slotSort: SortMode?
 
     func toggleSort(_ mode: SortMode) {
         Haptics.tap()
-        activeSort = activeSort == mode ? nil : mode
+        if activeSort == mode {
+            activeSort = nil
+            slotSort = nil
+        } else {
+            activeSort = mode
+            slotSort = mode
+        }
         applySortIfActive()
+    }
+
+    /// Places every card that just entered the hand beside its sorted
+    /// neighbor — the position it would hold under `slotSort` — instead of
+    /// leaving it appended at the end. The manual arrangement stays intact.
+    private func slotFreshCards(addedSince before: RummyState) {
+        guard let mode = slotSort else { return }
+        let beforeIDs = Set(before.players[humanSeat].hand.map(\.id))
+        let fresh = state.players[humanSeat].hand.filter { !beforeIDs.contains($0.id) }
+        guard !fresh.isEmpty else { return }
+        // A whole fresh hand (a deal) has no manual arrangement to respect —
+        // it lands fully sorted by the remembered rule.
+        if fresh.count == state.players[humanSeat].hand.count {
+            applySort(mode)
+            return
+        }
+        let locked = Set(lockedSeries.flatMap { $0 }).union(lockedPlaceables)
+        for card in fresh where !locked.contains(card.id) {
+            let loose = state.players[humanSeat].hand.filter { !locked.contains($0.id) }
+            let ordered: [Card]
+            switch mode {
+            case .rank: ordered = rankChainedOrder(loose)
+            case .suit: ordered = suitGroupedOrder(loose)
+            case .smart: ordered = smartOrder(loose)
+            }
+            guard let sortedIndex = ordered.firstIndex(where: { $0.id == card.id }) else { continue }
+            handOrder.removeAll { $0 == card.id }
+            let target: Int?
+            if sortedIndex > 0, let anchor = handOrder.firstIndex(of: ordered[sortedIndex - 1].id) {
+                target = anchor + 1
+            } else if sortedIndex + 1 < ordered.count {
+                target = handOrder.firstIndex(of: ordered[sortedIndex + 1].id)
+            } else {
+                target = nil
+            }
+            handOrder.insert(card.id, at: target ?? handOrder.count)
+        }
     }
 
     private func applySortIfActive() {
         guard let mode = activeSort else { return }
-        let locked = lockedSeries.flatMap { $0 }
+        applySort(mode)
+    }
+
+    private func applySort(_ mode: SortMode) {
+        let locked = lockedSeries.flatMap { $0 } + lockedPlaceables
         let rest = state.players[humanSeat].hand.filter { !locked.contains($0.id) }
         let ordered: [Card]
         switch mode {
@@ -503,7 +680,8 @@ final class RummyGameViewModel {
 
     /// Smart sort — the hand arranged by combo potential:
     /// 1. Same-suit runs (gap ≤ 1; the ace plays low beside a 2, high
-    ///    otherwise; chains of only 2–4 without an ace dissolve).
+    ///    otherwise; low fragments of 2–4 without an ace dissolve unless
+    ///    three consecutive cards complete the run).
     /// 2. Loose cards that share a rank with a run card attach right beside
     ///    it, printed on the side that keeps the run line unbroken.
     /// 3. With a joker in hand, a gap of two extends a run at either end.
@@ -551,7 +729,9 @@ final class RummyGameViewModel {
                 }
             }
             for chain in chains {
-                let lowOnly = chain.allSatisfy { $0 <= 4 } && !chain.contains(1)
+                // Low fragments (2–4, no ace) dissolve — but three consecutive
+                // low cards are a COMPLETE run and always hold together.
+                let lowOnly = chain.allSatisfy { $0 <= 4 } && !chain.contains(1) && chain.count < 3
                 guard chain.count >= 2, !lowOnly else { continue }
                 runs.append(ProtoRun(suit: suit, values: chain.sorted(by: >)))
             }
@@ -644,7 +824,9 @@ final class RummyGameViewModel {
             var chain: [Int] = []
             func flush() {
                 defer { chain = [] }
-                guard chain.count >= 2, !chain.allSatisfy({ $0 <= 4 }) else { return }
+                // Same exemption as above: {4,3,2} complete is a real run.
+                guard chain.count >= 2,
+                      !(chain.allSatisfy { $0 <= 4 } && chain.count < 3) else { return }
                 var run = ProtoRun(suit: suit, values: chain)
                 for value in chain {
                     let copies = cardsByValue[value] ?? []
@@ -954,14 +1136,22 @@ final class RummyGameViewModel {
 
     /// Manual reordering takes over: it clears the active sort.
     func reorderHand(_ order: [Int]) {
-        activeSort = nil
+        noteSortCleared()
         handOrder = order
     }
 
     /// Only a drag that ENDS as a deliberate reorder turns the sort off —
     /// a slide that ends as a discard or lay never touches it.
     func commitManualReorder() {
+        noteSortCleared()
+    }
+
+    /// Never silent: dropping out of the full sort is announced, and the
+    /// slotting rule stays so purchases keep landing beside their neighbors.
+    private func noteSortCleared() {
+        guard activeSort != nil else { return }
         activeSort = nil
+        showNotice("Sort off — new cards still slot into place")
     }
 
     func moveHandCard(fromOffsets: IndexSet, toOffset: Int) {
@@ -970,13 +1160,16 @@ final class RummyGameViewModel {
         reorderHand(order)
     }
 
-    /// The reset button clears the selection AND every locked series.
+    /// The reset button clears the selection AND every lock — series and
+    /// reserved placeables alike.
     func cancelSelection() {
-        guard !selectedCardIDs.isEmpty || !lockedSeries.isEmpty else { return }
+        guard !selectedCardIDs.isEmpty || !lockedSeries.isEmpty
+                || !lockedPlaceables.isEmpty else { return }
         Haptics.tap()
         selectedCardIDs = []
         lockedSeries = []
         lockedMelds = []
+        lockedPlaceables = []
     }
 
     /// Slide-to-throw from the hand; only when a throw is currently legal.
@@ -1070,7 +1263,7 @@ final class RummyGameViewModel {
                     showBanner("\(name) picked up the discard", icon: "hand.point.down.fill", duration: 1.8)
                 }
             case .swapJoker:
-                showBanner("\(name) swapped a joker", icon: "arrow.triangle.2.circlepath", duration: 1.8)
+                showBanner("\(name) swapped a joker", icon: "star.circle.fill", duration: 1.8)
             case .throwCard(let card):
                 if seat != humanSeat,
                    state.players[seat].throwStack.count > old.players[seat].throwStack.count {
@@ -1296,7 +1489,14 @@ final class RummyGameViewModel {
                        }) {
                         self.state = try RummyEngine.apply(.throwCard(legal), by: seat, to: self.state, rng: &rng)
                     }
-                    if case .deal = action { self.startDealHold() }
+                    if case .deal = action {
+                        self.startDealHold()
+                        // The fresh hand honors the sort right away — the
+                        // cards land already ordered, no re-click needed.
+                        self.syncHandOrder()
+                        self.applySortIfActive()
+                        if self.activeSort == nil { self.slotFreshCards(addedSince: before) }
+                    }
                     self.announceTransition(from: before, action: action, seat: seat)
                     self.scheduleTurnNudge()
                     self.syncHandOrder()

@@ -26,7 +26,7 @@ struct RulesView: View {
                         "Purchase from the stock, or pick up the previous player's discard (once unlocked).",
                         "Melds: runs of 3–5 consecutive cards of one suit, or sets of 3–4 same-rank cards of distinct suits. Once on the table a run keeps growing by appends — up to the full suit.",
                         "The ace plays low in A-2-3 and high in Q-K-A — never around the corner.",
-                        "Jokers substitute any card (at most two per meld). Once you have laid down, you can swap a table joker for its real card — the joker must be replayed the same turn.",
+                        "Jokers substitute any card (at most two per meld). On your discard step you can swap a table joker for its real card — even before your first lay-down — and the freed joker must be replayed the same turn. Exception: your last card always discards, joker or not — going out is never blocked.",
                         "End your turn by discarding one card.",
                     ])
                     section("Laying down", "tray.and.arrow.up.fill", [
@@ -35,7 +35,7 @@ struct RulesView: View {
                         "Discard while short of the count and the round stops: +100 for you, 0 for everyone else.",
                         "Picking up the discard before your first lay-down commits you to laying down that turn — if no qualifying lay-down is even possible, it is an instant +100.",
                         "Going out completely (laying everything and discarding your last card) never needs the count.",
-                        "After laying down, add fitting cards to any meld on the table.",
+                        "Add fitting cards to any meld on the table whenever it is your discard step — before your first lay-down, each added card counts toward your pending total.",
                     ])
                     section("Discard penalties", "exclamationmark.triangle.fill", [
                         "Discarding a joker, or a card that fits a meld on the table, costs +10 and the card comes back — unless you have no legal alternative.",

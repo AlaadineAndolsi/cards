@@ -329,6 +329,63 @@ struct AppendAndJokerTests {
         _ = try StateBuilder.apply(.throwCard(spare), by: 0, to: s)
     }
 
+    @Test func swapJokerAllowedBeforeOwnLayDownEvenUnderTheCount() throws {
+        // The reported trap: a player still short of the count (or with no
+        // pending lay-down at all) may take a table joker by placing its real
+        // card — the swap is a value-neutral table touch, judged like every
+        // other one at the throw.
+        let joker = TestCards.joker()
+        let five = TestCards.card(.five, .hearts, copy: 1)
+        let meldID = UUID()
+        let meldWithJoker = TableMeld(id: meldID, ownerSeat: 1, meld: Meld(entries: [
+            MeldEntry(card: runCards[0], asRank: .four, asSuit: .hearts),
+            MeldEntry(card: joker, asRank: .five, asSuit: .hearts),
+            MeldEntry(card: runCards[2], asRank: .six, asSuit: .hearts),
+        ]))
+        var s = state(hand: [five, TestCards.card(.nine, .clubs), TestCards.card(.queen, .spades)],
+                      laidDown: false, melds: [meldWithJoker])
+        s = try StateBuilder.apply(.swapJoker(meldID: meldID, realCard: five), by: 0, to: s)
+        #expect(s.players[0].hand.contains(joker))
+        #expect(s.tableMelds[0].meld.entries[1].card == five)
+        // The swap itself moves no pending value — only real placements count.
+        #expect(s.players[0].pendingLayDownValue == nil)
+        // Replaying the joker onto the same run (as the seven) clears the debt
+        // and pends the face it adopts.
+        let entry = MeldEntry(card: joker, asRank: .seven, asSuit: .hearts)
+        s = try StateBuilder.apply(.appendCard(entry, meldID: meldID), by: 0, to: s)
+        #expect(s.phase == .turn(seat: 0, .awaitingThrow(drew: .pile, pendingJoker: nil)))
+        #expect(s.players[0].pendingLayDownValue == 7)
+    }
+
+    @Test func pendingJokerMayBeThrownAsTheLastCard() throws {
+        // The reported softlock: only the freed joker left in hand — it can't
+        // be appended (a card must remain to throw) and the jokerPending
+        // guard blocked the throw. The final discard always goes out.
+        let joker = TestCards.joker()
+        let five = TestCards.card(.five, .hearts, copy: 1)
+        let seven = TestCards.card(.seven, .hearts)
+        let meldID = UUID()
+        let meldWithJoker = TableMeld(id: meldID, ownerSeat: 1, meld: Meld(entries: [
+            MeldEntry(card: runCards[0], asRank: .four, asSuit: .hearts),
+            MeldEntry(card: joker, asRank: .five, asSuit: .hearts),
+            MeldEntry(card: runCards[2], asRank: .six, asSuit: .hearts),
+        ]))
+        var s = state(hand: [five, seven], melds: [meldWithJoker])
+        s = try StateBuilder.apply(.swapJoker(meldID: meldID, realCard: five), by: 0, to: s)
+        s = try StateBuilder.apply(
+            .appendCard(MeldEntry(card: seven, asRank: .seven, asSuit: .hearts), meldID: meldID),
+            by: 0, to: s)
+        // Only the pending joker remains; throwing it closes the round clean.
+        #expect(s.players[0].hand == [joker])
+        let thrown = try StateBuilder.apply(.throwCard(joker), by: 0, to: s)
+        guard case .roundEnded(let result) = thrown.phase else {
+            Issue.record("expected a clean close, got \(thrown.phase)")
+            return
+        }
+        #expect(result.closerSeat == 0)
+        #expect(result.deltas[0] == 0)
+    }
+
     @Test func swapJokerRequiresMatchingRealCard() {
         let joker = TestCards.joker()
         let meldID = UUID()

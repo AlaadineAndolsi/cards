@@ -169,7 +169,12 @@ enum RummyEngine {
 
         case (.throwCard(let card), .turn(let turnSeat, .awaitingThrow(let drew, let pendingJoker))):
             guard seat == turnSeat else { throw RummyError.notYourTurn }
-            guard pendingJoker == nil else { throw RummyError.jokerPending }
+            // The freed joker must be replayed before the turn can end —
+            // EXCEPT as the last card: the final discard always goes out,
+            // otherwise the turn could never finish.
+            guard pendingJoker == nil || s.players[seat].hand.count == 1 else {
+                throw RummyError.jokerPending
+            }
             // A pre-lay-down take must be honored: at least one series must be
             // on the table before the turn can end.
             if drew == .takenThrow, !s.players[seat].hasLaidDown,
@@ -259,9 +264,13 @@ enum RummyEngine {
     }
 
     /// True when some meld combination (keeping at least one card to throw)
-    /// reaches the required first-lay-down total.
+    /// reaches the required first-lay-down total — or covers everything but
+    /// the final throw, because going out completely never needs the count.
     static func qualifyingLayDownExists(hand: [Card], required: Int) -> Bool {
-        HandAnalysis.bestPartition(hand: hand, maxCovered: hand.count - 1).value >= required
+        if HandAnalysis.bestPartition(hand: hand, maxCovered: hand.count - 1).value >= required {
+            return true
+        }
+        return HandAnalysis.closingMelds(hand: hand) != nil
     }
 
     /// A "double" is holding both copies of the same card. A hand dead enough

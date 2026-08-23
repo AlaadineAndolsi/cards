@@ -51,11 +51,14 @@ struct SeatView: View {
                     .padding(.vertical, 1.5)
                     .background(Color.black.opacity(0.35), in: Capsule())
                     .foregroundStyle(Theme.accent)
-                Label("\(handCount)", systemImage: "rectangle.portrait.on.rectangle.portrait.fill")
-                    .font(.system(size: 7.5, weight: .semibold))
+                Text("\(handCount)")
+                    .font(.system(size: 8, weight: .heavy, design: .rounded))
                     .monospacedDigit()
                     .contentTransition(.numericText())
-                    .foregroundStyle(.white.opacity(0.75))
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1.5)
+                    .background(Color.black.opacity(0.45), in: Capsule())
+                    .foregroundStyle(.white)
             }
         }
         .animation(.cardSpring, value: isActive)
@@ -270,14 +273,16 @@ struct PileView: View {
                 .shadow(color: enabled ? Theme.accent.opacity(0.65) : .black.opacity(0.3),
                         radius: enabled ? 10 : 4, y: 3)
                 .scaleEffect(enabled ? (breathe ? 1.16 : 1.09) : 1)
+                // Same tag as the hand's totals chips, so every count on the
+                // table reads as one family.
                 Text("\(count)")
-                    .font(.system(size: 14, weight: .heavy, design: .rounded))
+                    .font(.system(size: 13, weight: .heavy, design: .rounded))
                     .monospacedDigit()
                     .contentTransition(.numericText(countsDown: true))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 3)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4)
                     .background(Color.black.opacity(0.45), in: Capsule())
-                    .foregroundStyle(enabled ? Theme.accent : .white.opacity(0.85))
+                    .foregroundStyle(enabled ? Theme.accent : .white)
             }
         }
         .buttonStyle(.plain)
@@ -329,6 +334,7 @@ struct ArcHandView: View {
                     let inDraggedGroup = !isDragged && draggedGroup.contains(card.id)
                     let selected = viewModel.selectedCardIDs.contains(card.id)
                     let locked = viewModel.lockedCardIDs.contains(card.id)
+                    let reserved = viewModel.lockedPlaceables.contains(card.id)
                     let restX = width / 2 + centerOffset * step
                     let x = isDragged
                         ? dragStartX + dragTranslation.width
@@ -336,7 +342,7 @@ struct ArcHandView: View {
                     let y = baseY
                         + pow(centerOffset, 2) * 0.95         // arc: edges dip
                         + (selected ? -22 : 0)
-                        + (locked ? 12 : 0)                    // locked series sit lower
+                        + (locked || reserved ? 12 : 0)        // locks sit lower
                         + ((isDragged || inDraggedGroup) ? dragTranslation.height : 0)
 
                     CardView(card: card)
@@ -346,7 +352,11 @@ struct ArcHandView: View {
                         .overlay(
                             RoundedRectangle(cornerRadius: 5)
                                 .strokeBorder(
-                                    selected ? Theme.accent : (locked ? Color.green : .clear),
+                                    selected
+                                        ? Theme.accent
+                                        : (locked
+                                            ? Color.green
+                                            : (reserved ? Theme.placeableLock : .clear)),
                                     lineWidth: 2.5))
                         .rotationEffect(.degrees(isDragged ? 0 : centerOffset * 3.0))
                         .scaleEffect(isDragged ? 1.1 : 1)
@@ -364,6 +374,7 @@ struct ArcHandView: View {
             .animation(.cardSpring, value: cards.map(\.id))
             .animation(.cardSpring, value: viewModel.selectedCardIDs)
             .animation(.cardSpring, value: viewModel.lockedSeries)
+            .animation(.cardSpring, value: viewModel.lockedPlaceables)
         }
         .frame(height: handHeight)
     }
@@ -451,17 +462,34 @@ struct ArcHandView: View {
                     return
                 }
                 if previewWasShown {
-                    // Drop on a big meld = append; anywhere else just closes it.
+                    // Drop on a big meld = place it (append, or joker swap
+                    // when the card matches); anywhere else just closes it.
                     defer { withAnimation(.cardSpring) { viewModel.meldPreviewShown = false } }
                     if let target = viewModel.meldDropFrames.first(where: {
                         $0.value.insetBy(dx: -12, dy: -12).contains(value.location)
                     }) {
                         withAnimation(reduceMotion ? .default : .cardSpring) {
-                            viewModel.appendCard(card, to: target.key)
+                            viewModel.placeCard(card, on: target.key)
                         }
                         return
                     }
                     if translation.height < -45 { return }  // near the preview: don't throw by accident
+                }
+                // A reserved placeable card never throws by a slide — up it
+                // goes to its meld (or to the placement window to choose).
+                // With one card left the slide is the going-out discard.
+                if translation.height < -45, viewModel.lockedPlaceables.contains(card.id),
+                   viewModel.humanHand.count > 1 {
+                    let targets = viewModel.placementTargets(for: card)
+                    if targets.count == 1 {
+                        Haptics.action()
+                        withAnimation(reduceMotion ? .default : .cardSpring) {
+                            viewModel.placeCard(card, on: targets[0])
+                        }
+                    } else {
+                        withAnimation(.cardSpring) { viewModel.meldPreviewShown = true }
+                    }
+                    return
                 }
                 // Slide up = discard. Generous drop zone: any clear upward slide.
                 if translation.height < -45, viewModel.canThrow {
