@@ -107,6 +107,7 @@ enum GameDriver {
         let ids = s.drawPile.map(\.id)
             + s.players.flatMap { $0.hand.map(\.id) + $0.throwStack.map(\.id) }
             + s.tableMelds.flatMap { $0.meld.cards.map(\.id) }
+            + (s.destroyedCards ?? []).map(\.id)
         #expect(ids.count == 108, "card count broke (seed \(seed))")
         #expect(Set(ids).count == 108, "duplicate card ids (seed \(seed))")
     }

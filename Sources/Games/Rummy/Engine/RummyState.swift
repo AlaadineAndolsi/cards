@@ -33,6 +33,11 @@ struct PlayerState: Codable, Hashable, Sendable {
     var roundScores: [Int?] = []   // nil = abandoned (fully passed) round
     /// Cards this player took from throws this round — public info for bots.
     var takenThrows: [Card] = []
+    /// The very first card this player threw this round: it can NEVER be
+    /// taken, even after the global take unlock, and even if takes drain
+    /// the stack back down to it. Cleared when a pile reshuffle recycles
+    /// the throws. Optional so older saves keep decoding.
+    var firstThrowID: Int? = nil
 }
 
 struct TableMeld: Codable, Hashable, Identifiable, Sendable {
@@ -85,6 +90,11 @@ struct RummyState: Codable, Hashable, Sendable {
     var phase: Phase
     var drawPile: [Card]
     var tableMelds: [TableMeld] = []
+    /// Cards from destroyed melds — a same-rank set that filled to four
+    /// bursts off the table (jokers included). Invisible to everyone, but
+    /// they rejoin the game when the exhausted draw pile is rebuilt from
+    /// the throws. Optional so saves from before the rule keep decoding.
+    var destroyedCards: [Card]? = nil
     var roundNumber = 1
     /// Escalation chain: most recent *initial* lay-down total this round.
     var lastInitialLayDownTotal: Int?
@@ -120,8 +130,13 @@ struct RummyState: Codable, Hashable, Sendable {
     /// Throw-taking unlocks once every alive player has completed one turn.
     var throwTakeUnlocked: Bool { turnsCompletedThisRound >= aliveCount }
 
-    /// The card a player could take right now (previous alive player's last throw).
+    /// The card a player could take right now (previous alive player's last
+    /// throw) — nil when that card is the thrower's protected FIRST throw
+    /// of the round: none of the four opening throws can ever be picked.
     func takeableThrow(for seat: Int) -> Card? {
-        players[previousAliveSeat(before: seat)].throwStack.last
+        let previous = players[previousAliveSeat(before: seat)]
+        guard let card = previous.throwStack.last,
+              card.id != previous.firstThrowID else { return nil }
+        return card
     }
 }

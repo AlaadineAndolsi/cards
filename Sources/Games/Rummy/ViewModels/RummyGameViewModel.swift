@@ -158,16 +158,66 @@ final class RummyGameViewModel {
     /// left of the hand, right after the locked series.
     private(set) var lockedPlaceables: [Int] = []
 
-    /// The card plays on the table: it extends a meld, or a joker in one
-    /// plays exactly as this card (a swap seat is waiting for it).
+    /// The card plays on the table: it extends a meld (directly, or chained
+    /// behind other free hand cards — A♠ plays on Q♠-J♠-10♠ because the K♠
+    /// in hand bridges), or a joker in a meld plays exactly as this card
+    /// (a swap seat is waiting for it).
     func isPlaceable(_ card: Card) -> Bool {
-        if !fittingMelds(for: card).isEmpty { return true }
+        if !chainFittingMelds(for: card).isEmpty { return true }
         guard let rank = card.rank, let suit = card.suit else { return false }
         return state.tableMelds.contains { tableMeld in
             tableMeld.meld.entries.contains {
                 $0.card.isJoker && $0.asRank == rank && $0.asSuit == suit
             }
         }
+    }
+
+    /// Melds this card reaches once its own prerequisites go first: other
+    /// free hand cards extend the meld until this one fits. Jokers never
+    /// bridge silently — spending a joker stays the player's explicit call.
+    func chainFittingMelds(for card: Card) -> [UUID] {
+        state.tableMelds.compactMap { tableMeld in
+            chainToFit(card, on: tableMeld) != nil ? tableMeld.id : nil
+        }
+    }
+
+    /// The free hand cards that must append (in order) before `card` fits
+    /// the meld — empty when it already fits, nil when it never will.
+    /// Closest ranks are tried first so the chain stays minimal (the K♠
+    /// bridges the A♠, the 9♠ stays out of it).
+    private func chainToFit(_ card: Card, on tableMeld: TableMeld) -> [Card]? {
+        func grownBy(_ c: Card, _ meld: Meld) -> Meld? {
+            guard meld.entries.count < Meld.maxRunSize else { return nil }
+            let entry: MeldEntry?
+            if c.isJoker {
+                entry = meld.jokerEntryToExtend(joker: c)
+            } else if let rank = c.rank, let suit = c.suit {
+                entry = MeldEntry(card: c, asRank: rank, asSuit: suit)
+            } else {
+                entry = nil
+            }
+            guard let entry else { return nil }
+            return meld.inserting(entry)
+        }
+        let target = sortRankKey(card)
+        func search(_ meld: Meld, _ pool: [Card], _ depth: Int) -> [Card]? {
+            if grownBy(card, meld) != nil { return [] }
+            guard depth < 4 else { return nil }
+            let ordered = pool.sorted {
+                abs(sortRankKey($0) - target) < abs(sortRankKey($1) - target)
+            }
+            for step in ordered {
+                guard let grown = grownBy(step, meld) else { continue }
+                if let rest = search(grown, pool.filter { $0.id != step.id }, depth + 1) {
+                    return [step] + rest
+                }
+            }
+            return nil
+        }
+        let pool = humanHand.filter {
+            !$0.isJoker && $0.id != card.id && !lockedCardIDs.contains($0.id)
+        }
+        return search(tableMeld.meld, pool, 0)
     }
 
     var lockedValues: [Int] {
@@ -333,6 +383,41 @@ final class RummyGameViewModel {
         handOrder = locked + humanHand.map(\.id).filter { !locked.contains($0) }
     }
 
+    /// A purchased or taken card that is exactly what a locked joker stands
+    /// for slides straight into the joker's seat: the series keeps its
+    /// shape, and the freed joker pops out — unlocked, at the left of the
+    /// free cards, ready to work somewhere else.
+    private func swapFreshIntoLockedJokers(addedSince before: RummyState) {
+        guard !lockedMelds.isEmpty else { return }
+        let beforeIDs = Set(before.players[humanSeat].hand.map(\.id))
+        let fresh = state.players[humanSeat].hand.filter { !beforeIDs.contains($0.id) }
+        // A whole fresh hand is a deal, not a purchase.
+        guard !fresh.isEmpty, fresh.count < state.players[humanSeat].hand.count else { return }
+        var freedJokers: [Int] = []
+        for card in fresh {
+            guard let rank = card.rank, let suit = card.suit else { continue }
+            for index in lockedMelds.indices {
+                guard let entryIndex = lockedMelds[index].entries.firstIndex(where: {
+                    $0.card.isJoker && $0.asRank == rank && $0.asSuit == suit
+                }) else { continue }
+                let joker = lockedMelds[index].entries[entryIndex].card
+                lockedMelds[index].entries[entryIndex].card = card
+                lockedSeries[index] = lockedMelds[index].displayEntries.map(\.card.id)
+                freedJokers.append(joker.id)
+                break
+            }
+        }
+        guard !freedJokers.isEmpty else { return }
+        Haptics.action()
+        showNotice("The joker's seat is taken — it's free again")
+        // The freed joker leads the free cards; locked groups keep the edge.
+        handOrder.removeAll { freedJokers.contains($0) }
+        let lockedIDs = lockedSeries.flatMap { $0 } + lockedPlaceables
+        let insertAt = handOrder.firstIndex { !lockedIDs.contains($0) } ?? handOrder.count
+        handOrder.insert(contentsOf: freedJokers, at: insertAt)
+        rebuildHandOrder()
+    }
+
     /// Drop any locked series whose cards left the hand (laid or thrown).
     private func pruneLocks() {
         let handIDs = Set(state.players[humanSeat].hand.map(\.id))
@@ -384,11 +469,17 @@ final class RummyGameViewModel {
 
     /// Hand cards that can currently be placed somewhere on the table:
     /// they extend a meld, or they free a joker by taking its place.
+    /// Outside the placement window they still SHOW — the moment somebody
+    /// lays, the popup tells you what you hold for it (tap to reserve);
+    /// only the placing itself waits for your throw step.
     var popupCandidates: [Card] {
-        guard canAppendToTable else { return [] }
-        return humanHand.filter {
-            !fittingMelds(for: $0).isEmpty || !swapMelds(for: $0).isEmpty
+        guard !state.tableMelds.isEmpty else { return [] }
+        if canAppendToTable {
+            return humanHand.filter {
+                !chainFittingMelds(for: $0).isEmpty || !swapMelds(for: $0).isEmpty
+            }
         }
+        return humanHand.filter { isPlaceable($0) }
     }
 
     /// Joker swaps share the append window (your throw step) but pause while
@@ -420,9 +511,10 @@ final class RummyGameViewModel {
         }
     }
 
-    /// Everywhere this card can go right now: appends first, then swaps.
+    /// Everywhere this card can go right now: appends (direct or chained
+    /// behind its prerequisites) first, then swaps.
     func placementTargets(for card: Card) -> [UUID] {
-        var targets = fittingMelds(for: card)
+        var targets = chainFittingMelds(for: card)
         for id in swapMelds(for: card) where !targets.contains(id) {
             targets.append(id)
         }
@@ -436,6 +528,14 @@ final class RummyGameViewModel {
             appendCard(card, to: meldID, keepPopup: keepPopup)
         } else if swapMelds(for: card).contains(meldID) {
             swapJoker(with: card, in: meldID, keepPopup: keepPopup)
+        } else if let tableMeld = state.tableMelds.first(where: { $0.id == meldID }),
+                  let chain = chainToFit(card, on: tableMeld), !chain.isEmpty {
+            // The prerequisites go first, then the card itself: placing the
+            // A♠ on Q♠-J♠-10♠ lays the bridging K♠ on its way.
+            for step in chain {
+                appendCard(step, to: meldID, keepPopup: true)
+            }
+            appendCard(card, to: meldID, keepPopup: keepPopup)
         } else {
             lastError = .cannotAppendHere
             Haptics.warning()
@@ -470,6 +570,18 @@ final class RummyGameViewModel {
     /// one meld takes it, otherwise waits for you to tap the target meld.
     func popupPick(_ card: Card) {
         Haptics.tap()
+        // Before your throw step the tap reserves the card (placeable lock)
+        // instead of placing — it is held ready for when the window opens.
+        guard canAppendToTable else {
+            if lockedPlaceables.contains(card.id) {
+                lockedPlaceables.removeAll { $0 == card.id }
+            } else if isPlaceable(card), !lockedCardIDs.contains(card.id) {
+                lockedPlaceables.append(card.id)
+            }
+            rebuildHandOrder()
+            applySortIfActive()
+            return
+        }
         if popupPickedCardID == card.id {
             popupPickedCardID = nil
             return
@@ -486,6 +598,7 @@ final class RummyGameViewModel {
     /// Tap a meld in the popup: places the picked card (or the single
     /// selected hand card) onto it — append or joker swap, whichever fits.
     func popupTapMeld(_ id: UUID) {
+        guard canAppendToTable else { return }
         let picked = humanHand.first { $0.id == popupPickedCardID }
             ?? (selectedCardIDs.count == 1
                 ? humanHand.first { selectedCardIDs.contains($0.id) } : nil)
@@ -516,7 +629,43 @@ final class RummyGameViewModel {
 
     // MARK: Human actions
 
+    /// The one card the player was already warned about throwing — a second
+    /// throw of the same card is a confirmation and goes through.
+    private var seriesThrowWarnedID: Int?
+
+    /// The card sits inside an ORGANIZED series: three unlocked neighbors in
+    /// the fan, exactly as arranged, that form a valid meld together. The
+    /// arrangement is the player's own plan — a throw out of it is almost
+    /// always a slip of the finger.
+    private func isPartOfOrganizedSeries(_ card: Card) -> Bool {
+        let excluded = lockedCardIDs.union(lockedPlaceables)
+        guard !excluded.contains(card.id) else { return false }
+        let fan = humanHand.filter { !excluded.contains($0.id) }
+        guard let position = fan.firstIndex(where: { $0.id == card.id }) else { return false }
+        for start in max(0, position - 2)...position where start + 3 <= fan.count {
+            let window = Array(fan[start..<(start + 3)])
+            if HandAnalysis.bestPartition(hand: window, maximizeCoverage: true)
+                .coveredCount == 3 {
+                return true
+            }
+        }
+        return false
+    }
+
     func apply(_ action: RummyAction, keepMeldPreview: Bool = false) {
+        // A throw out of an organized series bounces once with a warning —
+        // repeating the exact throw confirms it was no accident.
+        if case .throwCard(let card) = action {
+            if seriesThrowWarnedID != card.id, isPartOfOrganizedSeries(card) {
+                seriesThrowWarnedID = card.id
+                Haptics.warning()
+                let name = card.rank.map { "\($0.label)\(card.suit?.symbol ?? "")" } ?? "that card"
+                showNotice("Attention — \(name) is part of a series. Throw it again if you mean it.",
+                           warn: true)
+                return
+            }
+            seriesThrowWarnedID = nil
+        }
         #if DEBUG
         print("RUMMY human apply: \(action)")
         #endif
@@ -536,6 +685,7 @@ final class RummyGameViewModel {
             }
             syncHandOrder()
             pruneLocks()
+            swapFreshIntoLockedJokers(addedSince: before)
             if activeSort != nil {
                 applySortIfActive()  // fresh draws slot straight into the active sort
             } else {
@@ -679,18 +829,34 @@ final class RummyGameViewModel {
     }
 
     /// Smart sort — the hand arranged by combo potential:
-    /// 1. Same-suit runs (gap ≤ 1; the ace plays low beside a 2, high
-    ///    otherwise; low fragments of 2–4 without an ace dissolve unless
-    ///    three consecutive cards complete the run).
+    /// 0. Complete sets first: three or more suits of one rank (rank ≥ 5)
+    ///    claim their cards before any suit chain forms, duplicates riding
+    ///    along — but a member refuses when its own suit runs LONGER
+    ///    through it than the set is wide; a leftover card one below a set
+    ///    that holds its suit lines up beneath it.
+    /// 1. Same-suit near-runs (one missing card bridges — gap ≤ 2, never
+    ///    more: a joker fills a single hole, so a two-card hole is no combo;
+    ///    the ace sits beside its king when possible, else beside a 2 — only
+    ///    a complete A-2-3 keeps it low; low fragments of 2–4 without an ace
+    ///    dissolve unless three consecutive cards complete the run). A card
+    ///    always prefers its own suit's near-run over attaching beside a
+    ///    same-rank mate in another suit.
     /// 2. Loose cards that share a rank with a run card attach right beside
-    ///    it, printed on the side that keeps the run line unbroken.
-    /// 3. With a joker in hand, a gap of two extends a run at either end.
+    ///    it, printed on the side that keeps the run line unbroken — but a
+    ///    card keeping an immediate same-suit neighbor (3♦-2♦) stays with
+    ///    that neighbor in the clusters instead.
+    /// 3. Jokers always print at the far LEFT of the hand. A joker in hand
+    ///    also promotes the best weak cards (rank ≥ 5) to a combo block: a
+    ///    two-suit rank group always, a lone card only when it crowns the
+    ///    leading block (exactly one rank above it).
     /// 4. Combos order by their top card; leftovers cluster by number with
     ///    isolated cards last; anything that fits a lay on the table goes to
     ///    the far right.
+    ///
+    /// Ground-truth examples live in docs/SMART_SORT_EXAMPLES.md — read it
+    /// before changing this, and record every new example there.
     private func smartOrder(_ cards: [Card]) -> [Card] {
         let jokers = cards.filter(\.isJoker)
-        let hasJoker = !jokers.isEmpty
         let nonJokers = cards.filter { !$0.isJoker }
 
         struct ProtoRun {
@@ -702,26 +868,78 @@ final class RummyGameViewModel {
         }
         var runs: [ProtoRun] = []
 
+        // Complete sets claim their cards before any suit chain forms:
+        // three or more suits of one rank are a meld as they stand, and a
+        // run they break leaves at most an equal fragment behind — four
+        // kings plus three queens beat K♠-Q♠-J♠ plus K♦-Q♦. Low ranks
+        // (2–4) stay out: a low set is weak and lives in the clusters.
+        // Sets print diamonds-to-spades so a tail-mate chains on its suit.
+        var setBlocks: [(top: Int, cards: [Card])] = []
+        var setClaimed = Set<Int>()
+        for (value, group) in Dictionary(grouping: nonJokers, by: { sortRankKey($0) })
+        where value >= 5 {
+            let suits = Set(group.compactMap(\.suit))
+            guard suits.count >= 3 else { continue }
+            // A member whose own suit runs LONGER through it than the set
+            // is wide refuses the claim — 7♥ inside 9-8-7-6 melds four
+            // cards, the set of 7s only three. An equal-length run never
+            // outbids the set (example 4's kings hold their claim).
+            let keepers = group.filter { card in
+                guard let suit = card.suit else { return false }
+                let values = Set(nonJokers.filter { $0.suit == suit }
+                    .compactMap { $0.rank.map { $0 == .ace ? 14 : $0.rawValue } })
+                var length = 1
+                var below = value - 1
+                while values.contains(below) { length += 1; below -= 1 }
+                var above = value + 1
+                while values.contains(above) { length += 1; above += 1 }
+                return length <= suits.count
+            }
+            guard Set(keepers.compactMap(\.suit)).count >= 3 else { continue }
+            let ordered = keepers.sorted {
+                suitIndex($0) != suitIndex($1)
+                    ? suitIndex($0) > suitIndex($1)
+                    : $0.id < $1.id
+            }
+            setBlocks.append((value, ordered))
+            for card in ordered { setClaimed.insert(card.id) }
+        }
+        setBlocks.sort { $0.top > $1.top }
+        let free = nonJokers.filter { !setClaimed.contains($0.id) }
+
         for suit in [Suit.spades, .hearts, .clubs, .diamonds] {
-            let suited = nonJokers.filter { $0.suit == suit }
+            let suited = free.filter { $0.suit == suit }
             guard !suited.isEmpty else { continue }
             var values = Set(suited.compactMap { $0.rank?.rawValue })
             let hasAce = values.contains(1)
             if hasAce { values.insert(14) }
+            // A chain carries at most ONE hole: a joker (or draw) fills a
+            // single missing card, so 6-4-2 is no combo — it splits.
             var chains: [[Int]] = []
             var current: [Int] = []
+            var holes = 0
             for value in values.sorted() {
-                if let last = current.last, value - last > 1 {
-                    chains.append(current)
-                    current = []
+                if let last = current.last {
+                    let gap = value - last
+                    if gap > 2 || (gap == 2 && holes > 0) {
+                        chains.append(current)
+                        current = []
+                        holes = 0
+                    } else if gap == 2 {
+                        holes += 1
+                    }
                 }
                 current.append(value)
             }
             if !current.isEmpty { chains.append(current) }
             if hasAce {
-                // The ace joins its low chain when a 2 is there, else it
-                // plays high; the phantom twin value disappears.
-                let aceLow = (chains.first { $0.contains(1) }?.count ?? 0) >= 2
+                // Ace-king if possible, else 2-ace: the ace prefers its
+                // high chain (an A-K line) over a low fragment — only a
+                // complete low run (A-2-3) keeps it low. The phantom twin
+                // value disappears.
+                let lowCount = chains.first { $0.contains(1) }?.count ?? 0
+                let highCount = chains.first { $0.contains(14) }?.count ?? 0
+                let aceLow = lowCount >= 3 || (lowCount >= 2 && highCount < 2)
                 chains = chains.compactMap { chain -> [Int]? in
                     var chain = chain
                     chain.removeAll { $0 == (aceLow ? 14 : 1) }
@@ -739,7 +957,7 @@ final class RummyGameViewModel {
 
         // One run card per value; every other card starts out pending.
         var pending: [Card] = []
-        for card in nonJokers {
+        for card in free {
             guard let suit = card.suit, let raw = card.rank?.rawValue else { continue }
             let candidates = raw == 1 ? [1, 14] : [raw]
             var placed = false
@@ -754,18 +972,37 @@ final class RummyGameViewModel {
             if !placed { pending.append(card) }
         }
 
-        // Same-rank mates attach beside their run card.
+        // Same-rank mates attach beside their run card — unless the card's
+        // own suit holds its immediate neighbor among the leftovers (a
+        // dissolved low fragment like 3♦-2♦): those stay together in the
+        // number clusters instead of one being ripped away as a mate.
         func attachByRank(_ cards: [Card]) -> [Card] {
             var loose: [Card] = []
             for card in cards {
                 guard let raw = card.rank?.rawValue else { continue }
+                let keepsSuitNeighbor = cards.contains { other in
+                    other.id != card.id && other.suit == card.suit
+                        && other.rank.map { abs($0.rawValue - raw) == 1 } ?? false
+                }
+                if keepsSuitNeighbor {
+                    loose.append(card)
+                    continue
+                }
                 let candidates = raw == 1 ? [1, 14] : [raw]
                 var placed = false
-                for index in runs.indices where !placed {
-                    for value in candidates where runs[index].values.contains(value) {
-                        runs[index].attachments[value, default: []].append(card)
-                        placed = true
-                        break
+                // An END seat first: a mate beside a run's top or bottom
+                // keeps the line readable (7♦ beside the 7♣-6♣ block, not
+                // buried inside 9-8-7-6); mid-run anchors are the fallback.
+                for edgesOnly in [true, false] where !placed {
+                    for index in runs.indices where !placed {
+                        for value in candidates
+                        where runs[index].values.contains(value)
+                            && (!edgesOnly || value == runs[index].values.first
+                                || value == runs[index].values.last) {
+                            runs[index].attachments[value, default: []].append(card)
+                            placed = true
+                            break
+                        }
                     }
                 }
                 if !placed { loose.append(card) }
@@ -774,9 +1011,10 @@ final class RummyGameViewModel {
         }
         var loose = attachByRank(pending)
 
-        // A two-gap at either end of a run always chains (one missing card);
-        // with a joker in hand even a three-gap does.
-        let maxEndGap = hasJoker ? 3 : 2
+        // A two-gap at either end of a run chains (one missing card). Never
+        // three: even a joker fills only one hole, and K over 10-9-7 would
+        // need both the Q and the J.
+        let maxEndGap = 2
         var still: [Card] = []
         for card in loose {
             guard let suit = card.suit, let raw = card.rank?.rawValue else {
@@ -789,9 +1027,13 @@ final class RummyGameViewModel {
                 for value in displays {
                     let top = runs[index].values.first!
                     let bottom = runs[index].values.last!
-                    if value > top, value - top <= maxEndGap {
+                    // The one-hole rule holds here too: a two-gap end
+                    // extension is only open while the run has no hole yet.
+                    let holes = (top - bottom + 1) - runs[index].values.count
+                    let allowed = holes > 0 ? 1 : maxEndGap
+                    if value > top, value - top <= allowed {
                         runs[index].values.insert(value, at: 0)
-                    } else if value < bottom, bottom - value <= maxEndGap {
+                    } else if value < bottom, bottom - value <= allowed {
                         runs[index].values.append(value)
                     } else {
                         continue
@@ -805,9 +1047,9 @@ final class RummyGameViewModel {
         }
         loose = still
 
-        // Leftover same-suit chains: gaps of two (three with a joker) still
-        // read as run material — K-J-9-7 of one suit stays a single block
-        // even without any one-gaps. Weak all-low chains (2-4) don't count.
+        // Leftover same-suit chains: gaps of two still read as run material —
+        // K-J-9-7 of one suit stays a single block even without any
+        // one-gaps. Weak all-low chains (2-4) don't count.
         var chainClaimed = Set<Int>()
         for suit in [Suit.spades, .hearts, .clubs, .diamonds] {
             let suited = loose.filter { $0.suit == suit }
@@ -839,8 +1081,17 @@ final class RummyGameViewModel {
                 }
                 runs.append(run)
             }
+            var holes = 0
             for value in values {
-                if let last = chain.last, last - value > maxEndGap { flush() }
+                if let last = chain.last {
+                    let gap = last - value
+                    if gap > maxEndGap || (gap == 2 && holes > 0) {
+                        flush()
+                        holes = 0
+                    } else if gap == 2 {
+                        holes += 1
+                    }
+                }
                 chain.append(value)
             }
             flush()
@@ -905,15 +1156,14 @@ final class RummyGameViewModel {
         }
 
         // With two jokers in hand, a leftover pair is a ready set (the pair
-        // plus joker twins) — it becomes a combo block placed by its rank,
-        // landing right after the jokers when it outranks the runs.
+        // plus joker twins) — it becomes a combo block placed by its rank.
         if jokers.count >= 2 {
             var byRank: [Int: [Card]] = [:]
             for card in loose {
                 byRank[sortRankKey(card), default: []].append(card)
             }
             var promoted = Set<Int>()
-            for (value, group) in byRank where group.count >= 2 {
+            for (value, group) in byRank where group.count >= 2 && value >= 5 {
                 guard Set(group.compactMap(\.suit)).count >= 2 else { continue }
                 let ordered = group.sorted {
                     (suitIndex($0), $0.id) < (suitIndex($1), $1.id)
@@ -927,25 +1177,49 @@ final class RummyGameViewModel {
             loose.removeAll { promoted.contains($0.id) }
         }
 
-        // Strong section: combos by top card, descending inside; a mate
-        // prints before its anchor when the run continues below it, after
-        // when the anchor closes the run.
-        var strong: [Card] = []
-        for run in runs.sorted(by: { $0.values.first! > $1.values.first! }) {
+        // A leftover card one below a set that holds its suit lines up
+        // beneath it — J♠ under Q♦-Q♣-Q♠ keeps reading as a line.
+        for index in setBlocks.indices {
+            let below = setBlocks[index].top - 1
+            let suits = Set(setBlocks[index].cards.compactMap(\.suit))
+            let tails = loose.filter {
+                sortRankKey($0) == below && ($0.suit.map(suits.contains) ?? false)
+            }
+            guard !tails.isEmpty else { continue }
+            let ordered = tails.sorted {
+                (suitIndex($0), $0.id) < (suitIndex($1), $1.id)
+            }
+            // The set exits on the first tail's suit so the line connects:
+            // 10♣ 10♠ 10♥ · 9♥ 9♣, never 10♥ buried mid-set.
+            if let lead = ordered.first?.suit,
+               let exit = setBlocks[index].cards.firstIndex(where: { $0.suit == lead }) {
+                let card = setBlocks[index].cards.remove(at: exit)
+                setBlocks[index].cards.append(card)
+            }
+            setBlocks[index].cards.append(contentsOf: ordered)
+            loose.removeAll { card in tails.contains { $0.id == card.id } }
+        }
+
+        // Strong section: combos flatten into blocks placed by their top
+        // card, descending inside; a mate prints before its anchor when the
+        // run continues below it, after when the anchor closes the run.
+        var blocks: [(top: Int, cards: [Card])] = setBlocks + runs.map { run in
+            var flat: [Card] = []
             for (index, value) in run.values.enumerated() {
                 let mates = (run.attachments[value] ?? []).sorted {
                     (suitIndex($0), $0.id) < (suitIndex($1), $1.id)
                 }
                 let isBottom = index == run.values.count - 1
                 if isBottom {
-                    if let member = run.members[value] { strong.append(member) }
-                    strong.append(contentsOf: mates)
+                    if let member = run.members[value] { flat.append(member) }
+                    flat.append(contentsOf: mates)
                 } else {
-                    strong.append(contentsOf: mates)
-                    if let member = run.members[value] { strong.append(member) }
+                    flat.append(contentsOf: mates)
+                    if let member = run.members[value] { flat.append(member) }
                 }
             }
-            strong.append(contentsOf: run.tailMates)
+            flat.append(contentsOf: run.tailMates)
+            return (run.values.first!, flat)
         }
 
         // Loose cards that fit somebody's lays go to the far right, with
@@ -954,7 +1228,32 @@ final class RummyGameViewModel {
         let appendable = loose.filter {
             RummyEngine.throwPenalized($0, tableMelds: state.tableMelds)
         }
-        let weak = loose.filter { card in !appendable.contains { $0.id == card.id } }
+        var weak = loose.filter { card in !appendable.contains { $0.id == card.id } }
+
+        // A joker-backed hand promotes its best weak cards to a combo block
+        // (rank ≥ 5 — low cards stay in the clusters): a rank group of two
+        // or more suits is set material and always earns a block; a lone
+        // card only when it CROWNS the leading block, sitting exactly one
+        // rank above it — a K over a Q-10 block. A lone A over a 9-block
+        // or a J parked mid-hand stays in the clusters.
+        if !jokers.isEmpty,
+           let top = weak.map({ sortRankKey($0) }).filter({ $0 >= 5 }).max() {
+            var group = weak.filter { sortRankKey($0) == top }.sorted {
+                (suitIndex($0), $0.id) < (suitIndex($1), $1.id)
+            }
+            if Set(group.compactMap(\.suit)).count < 2 { group = [group[0]] }
+            let crowns = blocks.map(\.top).max().map { top == $0 + 1 } ?? true
+            if group.count >= 2 || crowns {
+                blocks.append((top, group))
+                weak.removeAll { card in group.contains { $0.id == card.id } }
+            }
+        }
+
+        // Blocks print by top card; ties keep their build order, a promoted
+        // weak card after an equal-topped run.
+        let strong = blocks.enumerated()
+            .sorted { ($0.element.top, -$0.offset) > ($1.element.top, -$1.offset) }
+            .flatMap(\.element.cards)
         func targetMeldIndex(_ card: Card) -> Int {
             fittingMelds(for: card).first
                 .flatMap { id in state.tableMelds.firstIndex { $0.id == id } }

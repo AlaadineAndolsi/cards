@@ -198,6 +198,46 @@ struct ThrowTakeTests {
         #expect(throws: RummyError.throwTakeLocked) { try StateBuilder.apply(.takeThrow, by: 1, to: s) }
     }
 
+    /// None of the four opening throws can ever be picked: even with the
+    /// global unlock satisfied, a player's FIRST throw of the round stays
+    /// locked for the next player.
+    @Test func aFirstThrowIsNeverTakeableEvenAfterGlobalUnlock() throws {
+        let thrown = TestCards.card(.nine, .hearts)
+        let s = StateBuilder.turn(
+            seat: 0, stage: .awaitingThrow(drew: .pile, pendingJoker: nil),
+            hands: [[thrown, TestCards.card(.king, .diamonds)],
+                    [TestCards.card(.four, .clubs)], [], []],
+            laidDown: [true, true, true, true],
+            turnsCompleted: 5)
+        let after = try StateBuilder.apply(.throwCard(thrown), by: 0, to: s)
+        #expect(after.throwTakeUnlocked, "the global unlock is long satisfied")
+        #expect(after.players[0].firstThrowID == thrown.id)
+        #expect(after.takeableThrow(for: 1) == nil, "a first throw is never offered")
+        #expect(throws: RummyError.throwTakeLocked) {
+            try StateBuilder.apply(.takeThrow, by: 1, to: after)
+        }
+    }
+
+    /// A second throw on top is takeable — but taking it drains the stack
+    /// back down to the protected first throw, which locks again.
+    @Test func takesNeverReachTheProtectedFirstThrow() throws {
+        let first = TestCards.card(.nine, .hearts)
+        let second = TestCards.card(.queen, .clubs)
+        var s = StateBuilder.turn(
+            seat: 1, stage: .awaitingDraw,
+            hands: [[TestCards.card(.king, .diamonds)],
+                    [TestCards.card(.four, .clubs)], [], []],
+            throwStacks: [[first, second], [], [], []],
+            laidDown: [true, true, true, true],
+            turnsCompleted: 8)
+        s.players[0].firstThrowID = first.id
+        #expect(s.takeableThrow(for: 1) == second)
+        let after = try StateBuilder.apply(.takeThrow, by: 1, to: s)
+        #expect(after.players[1].hand.contains(second))
+        #expect(after.takeableThrow(for: 1) == nil,
+                "the stack drained back to the first throw — locked again")
+    }
+
     @Test func takeThrowAfterLayDownTakesPreviousPlayersTopThrow() throws {
         let (s, top) = takeSetup(turnsCompleted: 4, laidDown: true)
         let after = try StateBuilder.apply(.takeThrow, by: 1, to: s)

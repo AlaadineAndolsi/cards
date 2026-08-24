@@ -2,6 +2,59 @@ import Foundation
 import Testing
 @testable import Cards
 
+/// A same-rank set that fills to four bursts off the table: its cards
+/// (jokers included) leave play invisibly and only return when the
+/// exhausted draw pile is rebuilt from the throws.
+struct SetDestructionTests {
+    @Test func fourthCardDestroysTheSet() throws {
+        let kings = TestCards.set(.king, .spades, .hearts, .clubs)
+        let kd = TestCards.card(.king, .diamonds)
+        var s = StateBuilder.turn(
+            seat: 0, stage: .awaitingThrow(drew: .pile, pendingJoker: nil),
+            hands: [[kd, TestCards.card(.two, .clubs)], [], [], []],
+            laidDown: [true, true, true, true],
+            tableMelds: [TableMeld(id: UUID(), ownerSeat: 1, meld: kings)])
+        let meldID = s.tableMelds[0].id
+        s = try StateBuilder.apply(
+            .appendCard(TestCards.entry(.king, .diamonds), meldID: meldID), by: 0, to: s)
+        #expect(s.tableMelds.isEmpty, "the completed set leaves the table")
+        #expect(s.destroyedCards?.count == 4)
+        #expect(s.destroyedCards?.contains(kd) == true)
+        #expect(!s.players[0].hand.contains(kd))
+    }
+
+    @Test func jokerCompletingASetIsDestroyedWithIt() throws {
+        let queens = TestCards.set(.queen, .spades, .hearts, .diamonds)
+        var s = StateBuilder.turn(
+            seat: 0, stage: .awaitingThrow(drew: .pile, pendingJoker: nil),
+            hands: [[TestCards.joker(0), TestCards.card(.two, .clubs)], [], [], []],
+            laidDown: [true, true, true, true],
+            tableMelds: [TableMeld(id: UUID(), ownerSeat: 2, meld: queens)])
+        let meldID = s.tableMelds[0].id
+        s = try StateBuilder.apply(
+            .appendCard(TestCards.jokerEntry(as: .queen, .clubs), meldID: meldID), by: 0, to: s)
+        #expect(s.tableMelds.isEmpty)
+        #expect(s.destroyedCards?.contains(TestCards.joker(0)) == true)
+    }
+
+    @Test func destroyedCardsReturnOnPileReshuffle() throws {
+        let kd = TestCards.card(.king, .diamonds)
+        var s = StateBuilder.turn(
+            seat: 0, stage: .awaitingDraw,
+            hands: [[TestCards.card(.two, .clubs)], [], [], []],
+            throwStacks: [[], [TestCards.card(.nine, .hearts)], [], []],
+            laidDown: [true, true, true, true],
+            drawPile: [])
+        s.destroyedCards = [kd, TestCards.joker(0)]
+        s = try StateBuilder.apply(.drawFromPile, by: 0, to: s)
+        #expect(s.destroyedCards?.isEmpty == true)
+        // 3 cards were collected (1 throw + 2 destroyed); one was drawn.
+        let inPlay = s.drawPile + s.players[0].hand
+        #expect(inPlay.contains(kd), "destroyed cards rejoin via the reshuffle")
+        #expect(inPlay.contains(TestCards.joker(0)))
+    }
+}
+
 struct ClosingAndScoringTests {
     /// Seat 0 about to close: 1 card in hand. Seat 1 laid down, holds K+9 (19).
     /// Seat 2 never laid down (100 flat). Seat 3 laid down, holds a joker + 5 = 15.
@@ -27,6 +80,50 @@ struct ClosingAndScoringTests {
         #expect(result.deltas == [0, 19, 100, 15])
         #expect(s.players.map(\.totalScore) == [0, 19, 100, 15])
         #expect(s.players.map(\.roundScores) == [[0], [19], [100], [15]])
+    }
+
+    /// Throwing with only jokers left behind closes the round: the jokers
+    /// auto-append to table melds (a joker places anywhere), sparing the
+    /// player the busywork of parking them before the final discard.
+    @Test func throwWithOnlyJokersLeftAutoClosesTheRound() throws {
+        let run = TestCards.run(.hearts, .seven, .eight, .nine)
+        var s = StateBuilder.turn(
+            seat: 0, stage: .awaitingThrow(drew: .pile, pendingJoker: nil),
+            hands: [
+                [TestCards.card(.two, .clubs), TestCards.joker(0), TestCards.joker(1)],
+                [TestCards.card(.king, .diamonds)], [], [],
+            ],
+            laidDown: [true, true, true, true],
+            tableMelds: [TableMeld(id: UUID(), ownerSeat: 1, meld: run)])
+        s = try StateBuilder.apply(.throwCard(s.players[0].hand[0]), by: 0, to: s)
+        guard case .roundEnded(let result) = s.phase else {
+            Issue.record("expected roundEnded, got \(s.phase)")
+            return
+        }
+        #expect(result.closerSeat == 0)
+        #expect(s.players[0].hand.isEmpty)
+        // Both jokers grew the table run (9-8-7 → 5 entries).
+        #expect(s.tableMelds[0].meld.entries.count == 5)
+        #expect(s.tableMelds[0].meld.entries.filter(\.card.isJoker).count == 2)
+    }
+
+    /// With no room on the table for the jokers, the throw does NOT close —
+    /// the turn passes and the jokers stay in hand.
+    @Test func throwWithJokersButNoTableRoomDoesNotClose() throws {
+        var s = StateBuilder.turn(
+            seat: 0, stage: .awaitingThrow(drew: .pile, pendingJoker: nil),
+            hands: [
+                [TestCards.card(.two, .clubs), TestCards.joker(0)],
+                [TestCards.card(.king, .diamonds)], [], [],
+            ],
+            laidDown: [true, true, true, true])
+        s = try StateBuilder.apply(.throwCard(s.players[0].hand[0]), by: 0, to: s)
+        guard case .turn(let seat, _) = s.phase else {
+            Issue.record("expected the turn to pass, got \(s.phase)")
+            return
+        }
+        #expect(seat == 1)
+        #expect(s.players[0].hand.count == 1)
     }
 
     @Test func eliminationAtConfiguredScore() throws {

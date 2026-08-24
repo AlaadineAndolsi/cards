@@ -26,6 +26,14 @@ struct GameTableView: View {
         let ownerOffset: Int
     }
 
+    /// A completed same-rank set bursting off the table.
+    struct MeldBurst: Identifiable, Equatable {
+        let id: UUID
+        let cards: [Card]
+    }
+
+    @State private var meldBurst: MeldBurst?
+
     var body: some View {
         GeometryReader { geometry in
             ZStack {
@@ -44,6 +52,15 @@ struct GameTableView: View {
                         reduceMotion: reduceMotion) {
                             if layReveal == reveal { layReveal = nil }
                         }
+                }
+                if let burst = meldBurst {
+                    MeldBurstView(
+                        cards: burst.cards,
+                        center: CGPoint(x: geometry.size.width / 2, y: geometry.size.height * 0.42),
+                        reduceMotion: reduceMotion) {
+                            if meldBurst == burst { meldBurst = nil }
+                        }
+                    .id(burst.id)
                 }
                 if viewModel.meldPreviewShown {
                     // Tap anywhere outside the popup to close it.
@@ -330,6 +347,13 @@ struct GameTableView: View {
         .onChange(of: state.tableMelds) { old, new in
             detectLayDown(old: old, new: new)
         }
+        .onChange(of: state.destroyedCards ?? []) { old, new in
+            // The graveyard only ever GROWS on a destruction (reshuffle and
+            // round reset empty it), so growth is the burst signal.
+            guard new.count > old.count else { return }
+            Haptics.action()
+            meldBurst = MeldBurst(id: UUID(), cards: Array(new.dropFirst(old.count)))
+        }
     }
 
     /// The center of the table: the full deck while shuffling/dealing,
@@ -426,7 +450,7 @@ struct GameTableView: View {
 
     private var takeableHighlighted: Bool {
         viewModel.isHumanTurn && viewModel.humanStage == .awaitingDraw
-            && state.throwTakeUnlocked && lastThrow != nil
+            && state.throwTakeUnlocked && viewModel.takeableThrow != nil
     }
 
     private var canPurchase: Bool {
@@ -831,6 +855,57 @@ struct LayDownRevealView: View {
     }
 }
 
+/// A completed same-rank set (four cards, jokers included) bursting off the
+/// table: the set flashes big at center, then blows up and fades — its cards
+/// wait out of sight until the pile reshuffle.
+struct MeldBurstView: View {
+    let cards: [Card]
+    let center: CGPoint
+    let reduceMotion: Bool
+    let onFinished: () -> Void
+    @State private var appeared = false
+    @State private var burst = false
+
+    var body: some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 4) {
+                ForEach(Array(cards.enumerated()), id: \.element.id) { index, card in
+                    CardView(card: card)
+                        .frame(width: 52)
+                        // Cards splay apart as the set blows up.
+                        .rotationEffect(.degrees(
+                            burst ? (Double(index) - Double(cards.count - 1) / 2) * 16 : 0))
+                }
+            }
+            Text("Set complete — destroyed")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(Theme.accent)
+                .opacity(burst ? 0 : 1)
+        }
+        .shadow(color: .black.opacity(0.45), radius: 12, y: 6)
+        .scaleEffect(burst ? 1.6 : (appeared ? 1 : 0.4))
+        .opacity(burst ? 0 : (appeared ? 1 : 0))
+        .position(center)
+        .allowsHitTesting(false)
+        .onAppear {
+            if reduceMotion {
+                Task {
+                    try? await Task.sleep(for: .seconds(0.7))
+                    onFinished()
+                }
+                return
+            }
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) { appeared = true }
+            Task {
+                try? await Task.sleep(for: .seconds(0.75))
+                withAnimation(.easeOut(duration: 0.35)) { burst = true }
+                try? await Task.sleep(for: .seconds(0.4))
+                onFinished()
+            }
+        }
+    }
+}
+
 /// The placement window: opened by tapping any meld, or by holding a dragged
 /// card over the lays. Your placeable cards sit big on top; below, every
 /// player's melds are grouped under their name. Drag a card onto a meld to
@@ -916,9 +991,7 @@ struct MeldPreviewOverlay: View {
     @ViewBuilder
     private var candidatesSection: some View {
         if viewModel.popupCandidates.isEmpty {
-            Text(viewModel.canAppendToTable
-                 ? "No card in your hand plays on these melds"
-                 : "Placing opens on your turn, after you draw")
+            Text("No card in your hand plays on these melds")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
                 .padding(.top, 2)
@@ -939,7 +1012,9 @@ struct MeldPreviewOverlay: View {
                 .padding(.horizontal, 4)
                 .padding(.vertical, 3)
                 .frame(maxWidth: .infinity)
-                Text("Drag a card onto a meld — or tap it, then tap the target")
+                Text(viewModel.canAppendToTable
+                     ? "Drag a card onto a meld — or tap it, then tap the target"
+                     : "These play on the table — tap to reserve; placing opens on your turn")
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
@@ -989,6 +1064,19 @@ struct MeldPreviewOverlay: View {
     // MARK: Drop resolution
 
     private func handleDrop(_ card: Card, at location: CGPoint) {
+        // Placing waits for your throw step — until then a drop springs back.
+        guard viewModel.canAppendToTable else {
+            dragReturning = true
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+                dragLocation = dragOrigin
+            }
+            Task {
+                try? await Task.sleep(for: .seconds(0.30))
+                dragCard = nil
+                dragReturning = false
+            }
+            return
+        }
         // A matching joker's own seat wins: release right on it to swap.
         if let spot = jokerFrames.values.first(where: {
             $0.frame.insetBy(dx: -8, dy: -8).contains(location)

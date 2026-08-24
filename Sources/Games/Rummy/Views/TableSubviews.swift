@@ -463,16 +463,19 @@ struct ArcHandView: View {
                 }
                 if previewWasShown {
                     // Drop on a big meld = place it (append, or joker swap
-                    // when the card matches); anywhere else just closes it.
-                    defer { withAnimation(.cardSpring) { viewModel.meldPreviewShown = false } }
-                    if let target = viewModel.meldDropFrames.first(where: {
+                    // when the card matches) — the window STAYS open, so a
+                    // card that now fits (the 8 after a joker lands as the
+                    // 9) shows up immediately. Anywhere else closes it.
+                    if viewModel.canAppendToTable,
+                       let target = viewModel.meldDropFrames.first(where: {
                         $0.value.insetBy(dx: -12, dy: -12).contains(value.location)
                     }) {
                         withAnimation(reduceMotion ? .default : .cardSpring) {
-                            viewModel.placeCard(card, on: target.key)
+                            viewModel.placeCard(card, on: target.key, keepPopup: true)
                         }
                         return
                     }
+                    withAnimation(.cardSpring) { viewModel.meldPreviewShown = false }
                     if translation.height < -45 { return }  // near the preview: don't throw by accident
                 }
                 // A reserved placeable card never throws by a slide — up it

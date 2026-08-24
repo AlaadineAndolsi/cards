@@ -6,6 +6,102 @@ import Testing
 /// sort is active, and after a manual drag switched the full sort off, fresh
 /// cards keep slotting in beside their sorted neighbor (never at the end).
 /// Only explicitly toggling the sort off stops the slotting.
+/// Chained placement: with Q♠-J♠-10♠ on the table and A♠+K♠ in hand, BOTH
+/// are placeable — the K♠ bridges the A♠. Both lock blue, both show in the
+/// melds popup, and placing the ace lays the king on the way.
+@MainActor
+struct ChainedPlacementTests {
+    private func makeVM() -> (vm: RummyGameViewModel, meldID: UUID, ace: Card, king: Card) {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        let run = TestCards.run(.spades, .ten, .jack, .queen)
+        let ace = TestCards.card(.ace, .spades)
+        let king = TestCards.card(.king, .spades)
+        let meld = TableMeld(id: UUID(), ownerSeat: 1, meld: run)
+        let s = StateBuilder.turn(
+            seat: 0, stage: .awaitingThrow(drew: .pile, pendingJoker: nil),
+            hands: [[ace, king, TestCards.card(.four, .hearts),
+                     TestCards.card(.nine, .diamonds)], [], [], []],
+            laidDown: [true, true, true, true],
+            tableMelds: [meld])
+        return (RummyGameViewModel(state: s, store: GameStore(directory: dir)),
+                meld.id, ace, king)
+    }
+
+    @Test func chainedCardIsACandidateAndLocksBlue() {
+        let (vm, meldID, ace, king) = makeVM()
+        #expect(vm.popupCandidates.contains { $0.id == king.id })
+        #expect(vm.popupCandidates.contains { $0.id == ace.id },
+                "the ace shows beside the king — the king bridges it")
+        #expect(vm.chainFittingMelds(for: ace) == [meldID])
+        vm.longPressLock(ace)
+        vm.longPressLock(king)
+        #expect(vm.lockedPlaceables.contains(ace.id))
+        #expect(vm.lockedPlaceables.contains(king.id))
+    }
+
+    @Test func placingTheChainedAceLaysTheKingOnTheWay() {
+        let (vm, meldID, ace, king) = makeVM()
+        vm.placeCard(ace, on: meldID)
+        #expect(!vm.humanHand.contains { $0.id == ace.id })
+        #expect(!vm.humanHand.contains { $0.id == king.id })
+        #expect(vm.state.tableMelds[0].meld.entries.count == 5,
+                "10-J-Q grew by the king and the ace")
+    }
+}
+
+/// A throw out of an organized (but unlocked) series — three fan neighbors
+/// forming a valid meld, like an arranged 6-5-4 — bounces once with a
+/// warning; repeating the exact same throw confirms it.
+@MainActor
+struct SeriesThrowGuardTests {
+    private func makeVM(hand: [Card]) -> RummyGameViewModel {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        let s = StateBuilder.turn(
+            seat: 0, stage: .awaitingThrow(drew: .pile, pendingJoker: nil),
+            hands: [hand, [], [], []],
+            turnsCompleted: 4)
+        return RummyGameViewModel(state: s, store: GameStore(directory: dir))
+    }
+
+    @Test func throwFromAnArrangedRunBouncesOnceThenConfirms() {
+        let six = TestCards.card(.six, .clubs)
+        let five = TestCards.card(.five, .clubs)
+        let four = TestCards.card(.four, .clubs)
+        let kd = TestCards.card(.king, .diamonds)
+        let vm = makeVM(hand: [six, five, four, kd])
+        vm.apply(.throwCard(five))
+        #expect(vm.state.players[0].hand.count == 4, "first throw bounces with a warning")
+        vm.apply(.throwCard(five))
+        #expect(vm.state.players[0].hand.count == 3, "the repeated throw confirms")
+        #expect(vm.state.players[0].throwStack.last == five)
+    }
+
+    @Test func throwOutsideAnySeriesGoesStraightThrough() {
+        let six = TestCards.card(.six, .clubs)
+        let five = TestCards.card(.five, .clubs)
+        let four = TestCards.card(.four, .clubs)
+        let kd = TestCards.card(.king, .diamonds)
+        let vm = makeVM(hand: [six, five, four, kd])
+        vm.apply(.throwCard(kd))
+        #expect(vm.state.players[0].hand.count == 3, "a loose card throws with no fuss")
+    }
+
+    @Test func scatteredCardsDoNotCountAsASeries() {
+        // Same three clubs, but the 5♣ is parked away from its mates: the
+        // arrangement holds no series, so the throw goes straight through.
+        let six = TestCards.card(.six, .clubs)
+        let five = TestCards.card(.five, .clubs)
+        let four = TestCards.card(.four, .clubs)
+        let kd = TestCards.card(.king, .diamonds)
+        let nineH = TestCards.card(.nine, .hearts)
+        let vm = makeVM(hand: [six, four, kd, nineH, five])
+        vm.apply(.throwCard(five))
+        #expect(vm.state.players[0].hand.count == 4, "no organized series, no bounce")
+    }
+}
+
 @MainActor
 struct SortOnPurchaseTests {
 
@@ -28,6 +124,50 @@ struct SortOnPurchaseTests {
 
     private func labels(_ vm: RummyGameViewModel) -> [String] {
         vm.humanHand.map { $0.isJoker ? "J" : "\($0.rank!.label)\($0.suit!.symbol)" }
+    }
+
+    // MARK: Locked jokers — the real card takes the seat
+
+    /// A locked K♠-[joker as Q♠]-J♠: purchasing the real Q♠ slides it into
+    /// the joker's seat; the freed joker pops out unlocked at the left of
+    /// the free cards.
+    @Test func purchasedCardTakesALockedJokersSeat() {
+        let ks = TestCards.card(.king, .spades)
+        let js = TestCards.card(.jack, .spades)
+        let joker = TestCards.joker()
+        let qs = TestCards.card(.queen, .spades)
+        let filler = TestCards.card(.seven, .hearts)
+        let vm = makeVM(hand: [ks, joker, js, filler], topOfPile: qs)
+        vm.toggleSelection(ks)
+        vm.toggleSelection(joker)
+        vm.toggleSelection(js)
+        vm.lockSelection()
+        #expect(vm.lockedCardIDs.contains(joker.id))
+        vm.apply(.drawFromPile)
+        #expect(vm.lockedCardIDs.contains(qs.id), "the Q♠ locked into the joker's seat")
+        #expect(!vm.lockedCardIDs.contains(joker.id), "the joker is free again")
+        // Locked block first (K Q J), then the freed joker leads the rest.
+        #expect(Array(vm.handOrder.prefix(4)) == [ks.id, qs.id, js.id, joker.id],
+                "got \(labels(vm))")
+    }
+
+    /// Taking the previous throw frees a locked joker the same way:
+    /// 5♦-[joker as 4♦]-3♦ locked, the thrown 4♦ takes the seat.
+    @Test func takenThrowTakesALockedJokersSeat() {
+        let fiveD = TestCards.card(.five, .diamonds)
+        let threeD = TestCards.card(.three, .diamonds)
+        let joker = TestCards.joker()
+        let fourD = TestCards.card(.four, .diamonds)
+        let filler = TestCards.card(.king, .diamonds)
+        let vm = makeVM(hand: [fiveD, joker, threeD, filler], previousThrow: fourD)
+        vm.toggleSelection(fiveD)
+        vm.toggleSelection(joker)
+        vm.toggleSelection(threeD)
+        vm.lockSelection()
+        #expect(vm.lockedCardIDs.contains(joker.id))
+        vm.apply(.takeThrow)
+        #expect(vm.lockedCardIDs.contains(fourD.id), "the 4♦ locked into the joker's seat")
+        #expect(!vm.lockedCardIDs.contains(joker.id))
     }
 
     // MARK: Active sort — the full re-sort keeps working

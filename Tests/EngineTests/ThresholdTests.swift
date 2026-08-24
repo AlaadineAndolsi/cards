@@ -131,7 +131,10 @@ struct LayDownTests {
             .appendCard(MeldEntry(card: queenOfKings, asRank: .king, asSuit: .diamonds),
                         meldID: kingsMeldID),
             by: 0, to: laid)
-        #expect(laid.tableMelds[0].meld.entries.count == 4)
+        // The 4th king completes the set: it bursts off the table (set
+        // destruction rule) — but its value already counted while pending.
+        #expect(laid.tableMelds.count == 1, "only the aces remain")
+        #expect(laid.destroyedCards?.count == 4)
         #expect(laid.players[0].pendingLayDownValue == 70)
 
         // Short of the count the append still works — placement is always
