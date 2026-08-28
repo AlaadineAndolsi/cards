@@ -99,7 +99,14 @@ struct Meld: Codable, Hashable, Sendable {
 
     /// A face a joker could adopt to legally extend this meld, or nil.
     func jokerEntryToExtend(joker: Card) -> MeldEntry? {
-        guard let kind = try? validate(runLimit: Self.maxRunSize) else { return nil }
+        jokerEntriesToExtend(joker: joker).first
+    }
+
+    /// EVERY face a joker could adopt to legally extend this meld — both
+    /// ends of a run, every missing suit of a set.
+    func jokerEntriesToExtend(joker: Card) -> [MeldEntry] {
+        guard let kind = try? validate(runLimit: Self.maxRunSize) else { return [] }
+        var results: [MeldEntry] = []
         switch kind {
         case .run:
             let suit = entries[0].asSuit
@@ -111,16 +118,16 @@ struct Meld: Codable, Hashable, Sendable {
             else if last != .ace, let higher = Rank(rawValue: last.rawValue + 1) { options.append(higher) }
             for rank in options {
                 let entry = MeldEntry(card: joker, asRank: rank, asSuit: suit)
-                if inserting(entry) != nil { return entry }
+                if inserting(entry) != nil { results.append(entry) }
             }
         case .set:
             let usedSuits = Set(entries.map(\.asSuit))
             for suit in Suit.allCases where !usedSuits.contains(suit) {
                 let entry = MeldEntry(card: joker, asRank: entries[0].asRank, asSuit: suit)
-                if inserting(entry) != nil { return entry }
+                if inserting(entry) != nil { results.append(entry) }
             }
         }
-        return nil
+        return results
     }
 
     /// Tries the entry at every position; returns the first arrangement that

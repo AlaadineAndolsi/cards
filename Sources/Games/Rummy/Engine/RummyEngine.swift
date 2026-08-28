@@ -89,15 +89,9 @@ enum RummyEngine {
             let card = try takePreviousThrow(&s, seat: seat)
             s.players[seat].hand.append(card)
             s.players[seat].takenThrows.append(card)
-            // Taking before the first lay-down is a commitment: with no
-            // qualifying lay-down even possible, the taker is penalized 100,
-            // everyone else scores 0, and the round ends on the spot.
-            if !s.players[seat].hasLaidDown,
-               !Self.qualifyingLayDownExists(hand: s.players[seat].hand, required: s.requiredLayDown) {
-                Scoring.settleFailedTake(&s, penalized: seat)
-            } else {
-                s.phase = .turn(seat: seat, .awaitingThrow(drew: .takenThrow, pendingJoker: nil))
-            }
+            // Taking before the first lay-down is a commitment, but the count
+            // is only ever judged when the turn ends with a throw — never here.
+            s.phase = .turn(seat: seat, .awaitingThrow(drew: .takenThrow, pendingJoker: nil))
 
         case (.takeThrowAndLayDown(let melds), .turn(let turnSeat, .awaitingDraw)):
             guard seat == turnSeat else { throw RummyError.notYourTurn }
@@ -146,11 +140,10 @@ enum RummyEngine {
             destroyFullSets(&s)
             s.phase = .turn(seat: seat, .awaitingThrow(drew: drew, pendingJoker: stillPending))
 
-        case (.swapJoker(let meldID, let realCard), .turn(let turnSeat, .awaitingThrow(let drew, let pendingJoker))):
+        case (.swapJoker(let meldID, let realCard), .turn(let turnSeat, .awaitingThrow(let drew, _))):
             guard seat == turnSeat else { throw RummyError.notYourTurn }
             // Value-neutral table touch: allowed for everyone — the freed
-            // joker must be replayed this turn, and the throw judges the rest.
-            guard pendingJoker == nil else { throw RummyError.jokerPending }
+            // joker is the player's to replay or keep; the throw judges the rest.
             guard let meldIndex = s.tableMelds.firstIndex(where: { $0.id == meldID }) else {
                 throw RummyError.meldNotFound
             }
@@ -168,15 +161,10 @@ enum RummyEngine {
             s.players[seat].hand.append(joker)
             s.phase = .turn(seat: seat, .awaitingThrow(drew: drew, pendingJoker: joker))
 
-        case (.throwCard(let card), .turn(let turnSeat, .awaitingThrow(let drew, let pendingJoker))):
+        case (.throwCard(let card), .turn(let turnSeat, .awaitingThrow(let drew, _))):
             guard seat == turnSeat else { throw RummyError.notYourTurn }
-            // The freed joker must be replayed before the turn can end —
-            // EXCEPT as the last card, or when everything left beside the
-            // throw is jokers (the auto-close below replays it).
-            guard pendingJoker == nil || s.players[seat].hand.count == 1
-                || s.players[seat].hand.allSatisfy({ $0.isJoker || $0 == card }) else {
-                throw RummyError.jokerPending
-            }
+            // A freed joker is the player's to keep — throwing with it still
+            // in hand is legal (throwing the joker ITSELF stays penalized).
             // A pre-lay-down take must be honored: at least one series must be
             // on the table before the turn can end.
             if drew == .takenThrow, !s.players[seat].hasLaidDown,
@@ -199,9 +187,6 @@ enum RummyEngine {
             }
             s.players[seat].hand.remove(at: handIndex)
             s.players[seat].throwStack.append(card)
-            if s.players[seat].firstThrowID == nil {
-                s.players[seat].firstThrowID = card.id
-            }
             s.turnsCompletedThisRound += 1
             // Only jokers left after the throw: a joker places anywhere, so
             // the round is over — auto-append each to a table meld with room
@@ -361,7 +346,6 @@ enum RummyEngine {
             s.players[seat].hasLaidDown = false
             s.players[seat].pendingLayDownValue = nil
             s.players[seat].penaltiesThisRound = 0
-            s.players[seat].firstThrowID = nil
         }
         s.tableMelds = []
         s.destroyedCards = []
@@ -377,14 +361,10 @@ enum RummyEngine {
     }
 
     private static func takePreviousThrow(_ s: inout RummyState, seat: Int) throws -> Card {
+        // The unlock alone encodes the whole rule: the round's opening-cycle
+        // throws can never be taken, everything after them always can.
         guard s.throwTakeUnlocked else { throw RummyError.throwTakeLocked }
         let previous = s.previousAliveSeat(before: seat)
-        // A round's opening throw is sacred: none of the first throws can
-        // be picked, even once the global unlock is satisfied — and even
-        // when later takes drain the stack back down to it.
-        guard s.players[previous].throwStack.last?.id != s.players[previous].firstThrowID else {
-            throw RummyError.throwTakeLocked
-        }
         guard let card = s.players[previous].throwStack.popLast() else {
             throw RummyError.previousThrowUnavailable
         }
@@ -452,9 +432,6 @@ enum RummyEngine {
         for seat in s.players.indices {
             collected.append(contentsOf: s.players[seat].throwStack)
             s.players[seat].throwStack = []
-            // The protected first throws just got recycled into the pile —
-            // the protection must not outlive them (card ids get re-thrown).
-            s.players[seat].firstThrowID = nil
         }
         // Destroyed melds come back to life here — their cards were only
         // waiting out of sight for the pile to run dry.

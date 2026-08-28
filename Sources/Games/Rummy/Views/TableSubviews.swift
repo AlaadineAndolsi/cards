@@ -7,6 +7,8 @@ struct SeatView: View {
     let handCount: Int
     let isDealer: Bool
     let isActive: Bool
+    /// Within 100 points of elimination: the whole seat reads reddish.
+    var dangerScore: Bool = false
     /// Tilt/confidence cue; neutral (or nil) renders nothing.
     var mood: BotMood? = nil
 
@@ -14,7 +16,7 @@ struct SeatView: View {
         VStack(spacing: 2) {
             ZStack(alignment: .topTrailing) {
                 Circle()
-                    .fill(Color.black.opacity(0.22))
+                    .fill(dangerScore ? Color.red.opacity(0.35) : Color.black.opacity(0.22))
                     .frame(width: 36, height: 36)
                     .overlay(
                         Text(String(player.name.prefix(1)))
@@ -22,9 +24,14 @@ struct SeatView: View {
                             .foregroundStyle(.white))
                     .overlay(
                         Circle().strokeBorder(
-                            isActive ? Theme.accent : Color.white.opacity(0.2),
-                            lineWidth: isActive ? 2.5 : 1))
-                    .shadow(color: isActive ? Theme.accent.opacity(0.55) : .clear, radius: 7)
+                            isActive
+                                ? Theme.accent
+                                : (dangerScore ? Color.red.opacity(0.75) : Color.white.opacity(0.2)),
+                            lineWidth: isActive ? 2.5 : (dangerScore ? 1.5 : 1)))
+                    .shadow(color: isActive
+                                ? Theme.accent.opacity(0.55)
+                                : (dangerScore ? Color.red.opacity(0.5) : .clear),
+                            radius: 7)
                 if isDealer {
                     Text("D")
                         .font(.system(size: 8, weight: .black))
@@ -49,8 +56,10 @@ struct SeatView: View {
                     .font(.system(size: 8, weight: .bold, design: .rounded))
                     .padding(.horizontal, 5)
                     .padding(.vertical, 1.5)
-                    .background(Color.black.opacity(0.35), in: Capsule())
-                    .foregroundStyle(Theme.accent)
+                    .background(
+                        dangerScore ? Color.red.opacity(0.75) : Color.black.opacity(0.35),
+                        in: Capsule())
+                    .foregroundStyle(dangerScore ? .white : Theme.accent)
                 Text("\(handCount)")
                     .font(.system(size: 8, weight: .heavy, design: .rounded))
                     .monospacedDigit()
@@ -65,15 +74,28 @@ struct SeatView: View {
     }
 }
 
-/// Popup: each player's most recent throw. Tapping anywhere closes it.
+/// Popup: each player's most recent throw. Tapping anywhere closes it —
+/// except the glowing takeable card, which takes it.
 struct LastThrowsView: View {
     let players: [(name: String, card: Card?)]
+    /// Index into `players` of the card the human can take right now.
+    var takeableOffset: Int? = nil
+    var onTake: () -> Void = {}
 
     var body: some View {
         HStack(spacing: 10) {
-            ForEach(players, id: \.name) { entry in
+            ForEach(Array(players.enumerated()), id: \.offset) { offset, entry in
+                let takeable = offset == takeableOffset && entry.card != nil
                 VStack(spacing: 4) {
-                    if let card = entry.card {
+                    if let card = entry.card, takeable {
+                        CardView(card: card)
+                            .frame(width: 48)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 5)
+                                    .strokeBorder(Theme.accent, lineWidth: 2.5)
+                                    .shadow(color: Theme.accent.opacity(0.6), radius: 6))
+                            .onTapGesture(perform: onTake)
+                    } else if let card = entry.card {
                         CardView(card: card).frame(width: 48)
                     } else {
                         RoundedRectangle(cornerRadius: 5)
@@ -81,8 +103,9 @@ struct LastThrowsView: View {
                                           style: StrokeStyle(lineWidth: 1, dash: [4]))
                             .frame(width: 48, height: 65)
                     }
-                    Text(entry.name)
+                    Text(takeable ? "\(entry.name) · take" : entry.name)
                         .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(takeable ? Theme.accent : .primary)
                 }
             }
         }
@@ -93,6 +116,8 @@ struct LastThrowsView: View {
     }
 }
 
+/// Past the elimination score the seat reads fully disabled: washed out,
+/// crossed, no life left in it.
 struct EliminatedSeatView: View {
     let name: String
 
@@ -106,6 +131,8 @@ struct EliminatedSeatView: View {
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.4))
         }
+        .grayscale(1)
+        .opacity(0.55)
     }
 }
 
@@ -115,6 +142,9 @@ struct SideMeldsView: View {
     let horizontal: Bool
     var pendingHighlight: Bool = false
     let onTap: (UUID) -> Void
+    /// Reports each chip's global frame so a hand card dragged straight
+    /// onto a lay can drop there without opening the popup.
+    var onFrame: ((UUID, CGRect) -> Void)? = nil
 
     var body: some View {
         Group {
@@ -130,6 +160,14 @@ struct SideMeldsView: View {
         ForEach(melds.prefix(4)) { tableMeld in
             MiniMeldView(meld: tableMeld.meld, pending: pendingHighlight)
                 .onTapGesture { onTap(tableMeld.id) }
+                .background(
+                    GeometryReader { proxy in
+                        Color.clear
+                            .onAppear { onFrame?(tableMeld.id, proxy.frame(in: .global)) }
+                            .onChange(of: proxy.frame(in: .global)) { _, frame in
+                                onFrame?(tableMeld.id, frame)
+                            }
+                    })
         }
     }
 }
@@ -478,6 +516,18 @@ struct ArcHandView: View {
                     withAnimation(.cardSpring) { viewModel.meldPreviewShown = false }
                     if translation.height < -45 { return }  // near the preview: don't throw by accident
                 }
+                // A drop on (or right around) any laid meld is a placement
+                // try, never a throw: one destination places directly, more
+                // open the window with the card picked. Only a card that
+                // plays nowhere falls through to the plain throw.
+                if viewModel.canAppendToTable, viewModel.humanHand.count > 1,
+                   let hit = viewModel.tableMeldHit(at: value.location) {
+                    var handled = false
+                    withAnimation(reduceMotion ? .default : .cardSpring) {
+                        handled = viewModel.tryPlaceFromHand(card, droppedOn: hit)
+                    }
+                    if handled { return }
+                }
                 // A reserved placeable card never throws by a slide — up it
                 // goes to its meld (or to the placement window to choose).
                 // With one card left the slide is the going-out discard.
@@ -490,6 +540,7 @@ struct ArcHandView: View {
                             viewModel.placeCard(card, on: targets[0])
                         }
                     } else {
+                        viewModel.popupPickedCardID = card.id
                         withAnimation(.cardSpring) { viewModel.meldPreviewShown = true }
                     }
                     return

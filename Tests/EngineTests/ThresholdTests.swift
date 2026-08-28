@@ -300,7 +300,7 @@ struct AppendAndJokerTests {
         }
     }
 
-    @Test func swapJokerPutsJokerInHandAndItMustBeReused() throws {
+    @Test func swapJokerPutsJokerInHandAndItMayBeKept() throws {
         let joker = TestCards.joker()
         let five = TestCards.card(.five, .hearts, copy: 1)
         let meldID = UUID()
@@ -317,9 +317,11 @@ struct AppendAndJokerTests {
         #expect(s.players[0].hand.contains(joker))
         #expect(s.tableMelds[0].meld.entries[1].card == five)
         #expect(s.phase == .turn(seat: 0, .awaitingThrow(drew: .pile, pendingJoker: joker)))
-        // Throwing with the joker still in hand is illegal.
-        #expect(throws: RummyError.jokerPending) { try StateBuilder.apply(.throwCard(seven), by: 0, to: s) }
-        // Using the joker in a new meld clears the debt.
+        // The freed joker is the player's to keep: ending the turn with it
+        // still in hand is perfectly legal.
+        let kept = try StateBuilder.apply(.throwCard(spare), by: 0, to: s)
+        #expect(kept.players[0].hand.contains(joker))
+        // Or it can be replayed into a new meld, like any joker in hand.
         let newMeld = Meld(entries: [
             MeldEntry(card: seven, asRank: .seven, asSuit: .clubs),
             MeldEntry(card: eight, asRank: .eight, asSuit: .clubs),

@@ -198,48 +198,35 @@ struct ThrowTakeTests {
         #expect(throws: RummyError.throwTakeLocked) { try StateBuilder.apply(.takeThrow, by: 1, to: s) }
     }
 
-    /// None of the four opening throws can ever be picked: even with the
-    /// global unlock satisfied, a player's FIRST throw of the round stays
-    /// locked for the next player.
-    @Test func aFirstThrowIsNeverTakeableEvenAfterGlobalUnlock() throws {
+    /// The whole rule in one boundary: the round's opening-cycle throws
+    /// (the first `aliveCount`) can never be taken, and from the very next
+    /// throw on EVERY throw can — a player's first throw included.
+    @Test func openingCycleThrowsLockedFifthThrowOnwardTakeable() throws {
+        // Turn 5 (four throws completed): the takeable card would be the
+        // round's 4th throw — still locked, even for the dealer.
+        let (atFourth, _) = takeSetup(turnsCompleted: 4, laidDown: true)
+        #expect(!atFourth.throwTakeUnlocked)
+        #expect(throws: RummyError.throwTakeLocked) {
+            try StateBuilder.apply(.takeThrow, by: 1, to: atFourth)
+        }
+        // One throw later the round's 5th throw is on offer — takeable,
+        // even though it is that player's FIRST throw of the round.
         let thrown = TestCards.card(.nine, .hearts)
         let s = StateBuilder.turn(
             seat: 0, stage: .awaitingThrow(drew: .pile, pendingJoker: nil),
             hands: [[thrown, TestCards.card(.king, .diamonds)],
                     [TestCards.card(.four, .clubs)], [], []],
             laidDown: [true, true, true, true],
-            turnsCompleted: 5)
+            turnsCompleted: 4)
         let after = try StateBuilder.apply(.throwCard(thrown), by: 0, to: s)
-        #expect(after.throwTakeUnlocked, "the global unlock is long satisfied")
-        #expect(after.players[0].firstThrowID == thrown.id)
-        #expect(after.takeableThrow(for: 1) == nil, "a first throw is never offered")
-        #expect(throws: RummyError.throwTakeLocked) {
-            try StateBuilder.apply(.takeThrow, by: 1, to: after)
-        }
-    }
-
-    /// A second throw on top is takeable — but taking it drains the stack
-    /// back down to the protected first throw, which locks again.
-    @Test func takesNeverReachTheProtectedFirstThrow() throws {
-        let first = TestCards.card(.nine, .hearts)
-        let second = TestCards.card(.queen, .clubs)
-        var s = StateBuilder.turn(
-            seat: 1, stage: .awaitingDraw,
-            hands: [[TestCards.card(.king, .diamonds)],
-                    [TestCards.card(.four, .clubs)], [], []],
-            throwStacks: [[first, second], [], [], []],
-            laidDown: [true, true, true, true],
-            turnsCompleted: 8)
-        s.players[0].firstThrowID = first.id
-        #expect(s.takeableThrow(for: 1) == second)
-        let after = try StateBuilder.apply(.takeThrow, by: 1, to: s)
-        #expect(after.players[1].hand.contains(second))
-        #expect(after.takeableThrow(for: 1) == nil,
-                "the stack drained back to the first throw — locked again")
+        #expect(after.throwTakeUnlocked)
+        #expect(after.takeableThrow(for: 1) == thrown)
+        let taken = try StateBuilder.apply(.takeThrow, by: 1, to: after)
+        #expect(taken.players[1].hand.contains(thrown))
     }
 
     @Test func takeThrowAfterLayDownTakesPreviousPlayersTopThrow() throws {
-        let (s, top) = takeSetup(turnsCompleted: 4, laidDown: true)
+        let (s, top) = takeSetup(turnsCompleted: 5, laidDown: true)
         let after = try StateBuilder.apply(.takeThrow, by: 1, to: s)
         #expect(after.players[1].hand.contains(top))
         #expect(after.players[1].takenThrows == [top])
@@ -247,9 +234,9 @@ struct ThrowTakeTests {
         #expect(after.phase == .turn(seat: 1, .awaitingThrow(drew: .takenThrow, pendingJoker: nil)))
     }
 
-    @Test func preLayDownTakeWithNoQualifyingLayDownEndsRoundWithPenalty() throws {
-        // A meldless junk hand (no pairs, no near-runs) cannot reach 61 →
-        // taking the throw ends the round instantly: 100 for the taker, 0 rest.
+    @Test func preLayDownTakeIsNeverJudgedAtTheTake() throws {
+        // Even a meldless junk hand takes freely: the count verdict only
+        // ever lands when the turn ends with a throw — never at the take.
         let junk = [
             TestCards.card(.two, .hearts), TestCards.card(.six, .hearts), TestCards.card(.ten, .hearts),
             TestCards.card(.ace, .hearts),
@@ -263,18 +250,18 @@ struct ThrowTakeTests {
             seat: 1, stage: .awaitingDraw,
             hands: [[], junk, [], []],
             throwStacks: [prevThrown, [], [], []],
-            turnsCompleted: 4)
+            turnsCompleted: 5)
         s.players[0].hand = Array(Card.fullDeck().filter { card in
             !junk.contains(card) && !prevThrown.contains(card)
         }.prefix(14))
         let after = try StateBuilder.apply(.takeThrow, by: 1, to: s)
-        guard case .roundEnded(let result) = after.phase else {
-            Issue.record("expected roundEnded, got \(after.phase)")
-            return
+        #expect(after.phase == .turn(seat: 1, .awaitingThrow(drew: .takenThrow, pendingJoker: nil)))
+        #expect(after.players[1].totalScore == 0, "no penalty at the take")
+        // The commitment still stands: ending the turn without a single
+        // laid series is refused — the throw is where the judgment lives.
+        #expect(throws: RummyError.mustLayDownWithTake) {
+            try StateBuilder.apply(.throwCard(junk[0]), by: 1, to: after)
         }
-        #expect(result.closerSeat == nil)
-        #expect(result.deltas == [0, 100, 0, 0])
-        #expect(after.players.map(\.totalScore) == [0, 100, 0, 0])
     }
 
     @Test func preLayDownTakeWithQualifyingHandLocksUntilLayDown() throws {
@@ -292,7 +279,7 @@ struct ThrowTakeTests {
             seat: 1, stage: .awaitingDraw,
             hands: [[], meldCards + filler, [], []],
             throwStacks: [prevThrown, [], [], []],
-            turnsCompleted: 4)
+            turnsCompleted: 5)
         s.players[0].hand = Array(Card.fullDeck().filter { card in
             !meldCards.contains(card) && !filler.contains(card) && !prevThrown.contains(card)
         }.prefix(14))
@@ -325,7 +312,7 @@ struct ThrowTakeTests {
             seat: 1, stage: .awaitingDraw,
             hands: [[], meldCards + filler, [], []],
             throwStacks: [prevThrown, [], [], []],
-            turnsCompleted: 4)
+            turnsCompleted: 5)
         s.players[0].hand = distinctCards(14, excluding: Set((meldCards + filler + prevThrown).map(\.id)))
         let meld = Meld(entries: meldCards.map { MeldEntry(card: $0, asRank: $0.rank!, asSuit: $0.suit!) })
         // Laying short is allowed — the throw ends the round at +100.
@@ -358,7 +345,7 @@ struct ThrowTakeTests {
             seat: 1, stage: .awaitingDraw,
             hands: [[], meldCards + filler, [], []],
             throwStacks: [prevThrown, [], [], []],
-            turnsCompleted: 4)
+            turnsCompleted: 5)
         s.players[0].hand = distinctCards(14, excluding: Set((meldCards + filler + prevThrown).map(\.id)))
         let melds = [kings, aces, run].map { cards in
             Meld(entries: cards.map { MeldEntry(card: $0, asRank: $0.rank!, asSuit: $0.suit!) })

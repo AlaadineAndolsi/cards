@@ -23,17 +23,17 @@ struct RulesView: View {
                         "Nobody may lay down or pick up a discard until the turn returns to the dealer.",
                     ])
                     section("Your turn", "hand.tap.fill", [
-                        "Purchase from the stock, or pick up the previous player's discard (once unlocked).",
+                        "Purchase from the stock, or pick up the previous player's discard. The opening cycle's discards (the round's first four) can never be picked up — from the fifth discard on, every discard can.",
                         "Melds: runs of 3–5 consecutive cards of one suit, or sets of 3–4 same-rank cards of distinct suits. Once on the table a run keeps growing by appends — up to the full suit.",
                         "The ace plays low in A-2-3 and high in Q-K-A — never around the corner.",
-                        "Jokers substitute any card (at most two per meld). On your discard step you can swap a table joker for its real card — even before your first lay-down — and the freed joker must be replayed the same turn. Exception: your last card always discards, joker or not — going out is never blocked.",
+                        "Jokers substitute any card (at most two per meld). On your discard step you can swap a table joker for its real card — even before your first lay-down. The freed joker is yours: replay it or keep it in hand. Your last card always discards, joker or not — going out is never blocked.",
                         "End your turn by discarding one card.",
                     ])
                     section("Laying down", "tray.and.arrow.up.fill", [
                         "Lay melds one by one whenever it is your turn — table touch: a laid meld never comes back to your hand.",
                         "The count is checked when you discard: your first lay-down must reach the required total (61 by default). Each first lay-down after another player's must beat it by one point.",
                         "Discard while short of the count and the round stops: +100 for you, 0 for everyone else.",
-                        "Picking up the discard before your first lay-down commits you to laying down that turn — if no qualifying lay-down is even possible, it is an instant +100.",
+                        "Picking up the discard before your first lay-down commits you to laying down that turn — the count is judged when you discard, and falling short there costs +100.",
                         "Going out completely (laying everything and discarding your last card) never needs the count.",
                         "Add fitting cards to any meld on the table whenever it is your discard step — before your first lay-down, each added card counts toward your pending total.",
                     ])

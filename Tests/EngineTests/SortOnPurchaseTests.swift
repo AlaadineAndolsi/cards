@@ -114,7 +114,7 @@ struct SortOnPurchaseTests {
             seat: 0, stage: .awaitingDraw,
             hands: [hand, [], [], []],
             throwStacks: [[], [], [], previousThrow.map { [$0] } ?? []],
-            turnsCompleted: 4)
+            turnsCompleted: 5)
         if let topOfPile {
             s.drawPile.removeAll { $0.id == topOfPile.id }
             s.drawPile.append(topOfPile)  // drawFromPile pops last

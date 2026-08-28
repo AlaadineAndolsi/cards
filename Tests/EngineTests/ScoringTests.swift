@@ -176,10 +176,10 @@ struct ClosingAndScoringTests {
         s = try RummyEngine.apply(.deal(.p1111), by: s.dealerSeat, to: s, rng: &rng)
         #expect(s.players[2].hand.isEmpty)
         #expect(s.players[s.dealerSeat].hand.count == 15)
-        // Unlock now needs only 3 completed turns.
-        s.turnsCompletedThisRound = 3
+        // The opening cycle shrank to 3 throws: takes open from the 4th.
+        s.turnsCompletedThisRound = 4
         #expect(s.throwTakeUnlocked)
-        s.turnsCompletedThisRound = 2
+        s.turnsCompletedThisRound = 3
         #expect(!s.throwTakeUnlocked)
     }
 

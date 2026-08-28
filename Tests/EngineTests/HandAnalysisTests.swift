@@ -97,7 +97,7 @@ struct DuplicateCopyPartitionTests {
             seat: 0, stage: .awaitingDraw,
             hands: [hand, [], [], []],
             throwStacks: [[], [], [], [taken]],
-            turnsCompleted: 4,
+            turnsCompleted: 5,
             lastInitialLayDown: 90)
         let after = try StateBuilder.apply(.takeThrow, by: 0, to: s)
         #expect(after.phase == .turn(seat: 0, .awaitingThrow(drew: .takenThrow, pendingJoker: nil)))
@@ -122,7 +122,7 @@ struct UnderCountCloseQualifiesTests {
             seat: 0, stage: .awaitingDraw,
             hands: [hand, [], [], []],
             throwStacks: [[], [], [], [taken]],
-            turnsCompleted: 4)
+            turnsCompleted: 5)
         let after = try StateBuilder.apply(.takeThrow, by: 0, to: s)
         #expect(after.phase == .turn(seat: 0, .awaitingThrow(drew: .takenThrow, pendingJoker: nil)))
     }

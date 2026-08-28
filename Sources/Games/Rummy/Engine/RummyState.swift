@@ -33,11 +33,6 @@ struct PlayerState: Codable, Hashable, Sendable {
     var roundScores: [Int?] = []   // nil = abandoned (fully passed) round
     /// Cards this player took from throws this round — public info for bots.
     var takenThrows: [Card] = []
-    /// The very first card this player threw this round: it can NEVER be
-    /// taken, even after the global take unlock, and even if takes drain
-    /// the stack back down to it. Cleared when a pile reshuffle recycles
-    /// the throws. Optional so older saves keep decoding.
-    var firstThrowID: Int? = nil
 }
 
 struct TableMeld: Codable, Hashable, Identifiable, Sendable {
@@ -127,16 +122,16 @@ struct RummyState: Codable, Hashable, Sendable {
         lastInitialLayDownTotal.map { $0 + 1 } ?? config.minimumLayDown
     }
 
-    /// Throw-taking unlocks once every alive player has completed one turn.
-    var throwTakeUnlocked: Bool { turnsCompletedThisRound >= aliveCount }
+    /// The round's opening-cycle throws (the first `aliveCount` of them —
+    /// throws 1–4 at a full table) can never be taken; from the NEXT throw
+    /// on, every throw is takeable. Since the takeable card is always the
+    /// previous player's freshest throw, that is exactly one extra locked
+    /// turn past the everyone-played-once unlock.
+    var throwTakeUnlocked: Bool { turnsCompletedThisRound > aliveCount }
 
-    /// The card a player could take right now (previous alive player's last
-    /// throw) — nil when that card is the thrower's protected FIRST throw
-    /// of the round: none of the four opening throws can ever be picked.
+    /// The card a player could take right now: the previous alive player's
+    /// last throw.
     func takeableThrow(for seat: Int) -> Card? {
-        let previous = players[previousAliveSeat(before: seat)]
-        guard let card = previous.throwStack.last,
-              card.id != previous.firstThrowID else { return nil }
-        return card
+        players[previousAliveSeat(before: seat)].throwStack.last
     }
 }

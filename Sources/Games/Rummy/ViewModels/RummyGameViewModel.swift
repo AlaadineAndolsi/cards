@@ -67,6 +67,37 @@ final class RummyGameViewModel {
     var meldPreviewShown = false
     /// Global frames of the big meld drop targets, reported by the overlay.
     var meldDropFrames: [UUID: CGRect] = [:]
+    /// Global frames of the small laid-meld chips on the table itself, so a
+    /// hand card dragged straight onto a lay drops there without the popup.
+    var tableMeldFrames: [UUID: CGRect] = [:]
+
+    /// The laid meld chip under a global point, with a generous halo: a drop
+    /// on or around the lays is a placement try, never a throw.
+    func tableMeldHit(at point: CGPoint) -> UUID? {
+        let live = Set(state.tableMelds.map(\.id))
+        return tableMeldFrames.first { id, frame in
+            live.contains(id) && frame.insetBy(dx: -16, dy: -16).contains(point)
+        }?.key
+    }
+
+    /// A hand card dropped on the table's laid melds: exactly one place it
+    /// goes → it goes there; several → the placement window opens with the
+    /// card picked. Returns false when the card plays nowhere (the caller
+    /// may then treat the gesture as a plain throw).
+    @discardableResult
+    func tryPlaceFromHand(_ card: Card, droppedOn meldID: UUID) -> Bool {
+        guard canAppendToTable else { return false }
+        let targets = placementTargets(for: card)
+        if targets.count == 1 {
+            placeCard(card, on: targets[0])
+        } else if targets.count > 1 {
+            popupPickedCardID = card.id
+            meldPreviewShown = true
+        } else {
+            return false
+        }
+        return true
+    }
 
     var humanSeat: Int { state.players.firstIndex(where: \.isHuman) ?? 0 }
 
@@ -437,13 +468,7 @@ final class RummyGameViewModel {
     var handHint: (text: String, warn: Bool)? {
         guard isHumanTurn else { return nil }
         let player = state.players[humanSeat]
-        guard case .awaitingThrow(_, let pendingJoker) = humanStage else { return nil }
-        if pendingJoker != nil {
-            if player.hand.count == 1 {
-                return ("Discard the joker to go out!", false)
-            }
-            return ("Place the freed joker on a meld to end your turn", false)
-        }
+        guard case .awaitingThrow = humanStage else { return nil }
         if let pending = player.pendingLayDownValue, !player.hasLaidDown {
             if player.hand.count == 1 {
                 return ("Discard your last card to go out!", false)
@@ -482,32 +507,21 @@ final class RummyGameViewModel {
         return humanHand.filter { isPlaceable($0) }
     }
 
-    /// Joker swaps share the append window (your throw step) but pause while
-    /// a freed joker is still waiting to be replayed.
+    /// Joker swaps share the append window (your throw step).
     var swapAllowed: Bool {
-        if case .awaitingThrow(_, pendingJoker: nil) = humanStage { return canAppendToTable }
+        if case .awaitingThrow = humanStage { return canAppendToTable }
         return false
     }
 
     /// Melds where a joker plays exactly as this card, so the card can take
-    /// its place and free the joker. Only offered when the freed joker could
-    /// be replayed by extending some meld — a swap must never strand a joker
-    /// the turn can't end with.
+    /// its place and free the joker — which is then the player's to replay
+    /// or simply keep in hand.
     func swapMelds(for card: Card) -> [UUID] {
         guard swapAllowed, let rank = card.rank, let suit = card.suit else { return [] }
         return state.tableMelds.compactMap { tableMeld in
-            guard let entryIndex = tableMeld.meld.entries.firstIndex(where: {
+            tableMeld.meld.entries.contains {
                 $0.card.isJoker && $0.asRank == rank && $0.asSuit == suit
-            }) else { return nil }
-            let joker = tableMeld.meld.entries[entryIndex].card
-            var swapped = tableMeld.meld
-            swapped.entries[entryIndex].card = card
-            let jokerReplayable = state.tableMelds.contains { other in
-                let meld = other.id == tableMeld.id ? swapped : other.meld
-                return meld.entries.count < Meld.maxRunSize
-                    && meld.jokerEntryToExtend(joker: joker) != nil
-            }
-            return jokerReplayable ? tableMeld.id : nil
+            } ? tableMeld.id : nil
         }
     }
 
@@ -519,6 +533,81 @@ final class RummyGameViewModel {
             targets.append(id)
         }
         return targets
+    }
+
+    /// One exact seat a card could take in a meld's DISPLAY row: the gap it
+    /// would fill (a card-sized slot), or nil-entry when its prerequisites
+    /// chain first. Swaps are not spots — the joker's own card highlights
+    /// instead (see `swapSeats(for:in:)`).
+    struct PlacementSpot: Identifiable, Equatable {
+        let meldID: UUID
+        /// Position in the meld's display order the card would occupy
+        /// (0 = far left … entries.count = far right).
+        let gapIndex: Int
+        /// Concrete entry for a direct append; nil = chained placement.
+        let entry: MeldEntry?
+        var id: String { "\(meldID)-\(gapIndex)" }
+    }
+
+    /// Every card-sized slot `card` can fill in this meld right now: a
+    /// joker offers every legal end, a fitting card its own seat, and a
+    /// chain-fitting card the end its prerequisites open up.
+    func placementSpots(for card: Card, in tableMeld: TableMeld) -> [PlacementSpot] {
+        guard canAppendToTable,
+              tableMeld.meld.entries.count < Meld.maxRunSize else { return [] }
+        let meld = tableMeld.meld
+        let candidates: [MeldEntry]
+        if card.isJoker {
+            candidates = meld.jokerEntriesToExtend(joker: card)
+        } else if let rank = card.rank, let suit = card.suit {
+            candidates = [MeldEntry(card: card, asRank: rank, asSuit: suit)]
+        } else {
+            candidates = []
+        }
+        var spots: [PlacementSpot] = []
+        for entry in candidates {
+            guard let grown = meld.inserting(entry),
+                  let index = grown.displayEntries.firstIndex(where: { $0.card.id == card.id })
+            else { continue }
+            let spot = PlacementSpot(meldID: tableMeld.id, gapIndex: index, entry: entry)
+            if !spots.contains(where: { $0.gapIndex == spot.gapIndex }) { spots.append(spot) }
+        }
+        if spots.isEmpty, !card.isJoker,
+           let chain = chainToFit(card, on: tableMeld), !chain.isEmpty {
+            // The chain grows toward the card, so it lands at an end: left
+            // (display = biggest first) when it outranks the meld's top.
+            let top = meld.displayEntries.first.map { entry in
+                entry.asRank == .ace && !meld.entries.contains(where: { $0.asRank == .two })
+                    ? 14 : entry.asRank.rawValue
+            } ?? 0
+            let mine = card.rank == .ace ? 14 : (card.rank?.rawValue ?? 0)
+            spots.append(PlacementSpot(
+                meldID: tableMeld.id,
+                gapIndex: mine > top ? 0 : meld.entries.count,
+                entry: nil))
+        }
+        return spots
+    }
+
+    /// Card ids of the table jokers in this meld that `card` can swap out.
+    func swapSeats(for card: Card, in tableMeld: TableMeld) -> [Int] {
+        guard swapMelds(for: card).contains(tableMeld.id),
+              let rank = card.rank, let suit = card.suit else { return [] }
+        return tableMeld.meld.entries
+            .filter { $0.card.isJoker && $0.asRank == rank && $0.asSuit == suit }
+            .map(\.card.id)
+    }
+
+    /// Tap on a highlighted slot: places the card at exactly that seat.
+    func placeSpot(_ spot: PlacementSpot, card: Card) {
+        guard canAppendToTable else { return }
+        popupPickedCardID = nil
+        if let entry = spot.entry {
+            Haptics.action()
+            apply(.appendCard(entry, meldID: spot.meldID), keepMeldPreview: true)
+        } else {
+            placeCard(card, on: spot.meldID, keepPopup: true)
+        }
     }
 
     /// Places a hand card onto a table meld: extend it when the card fits,
@@ -1478,8 +1567,8 @@ final class RummyGameViewModel {
     }
 
     /// Tap on the previous player's last throw takes it. Before the first
-    /// lay-down this is a commitment: with no qualifying lay-down even
-    /// possible the round ends at +100 on the spot.
+    /// lay-down this is a commitment — but the count is only ever judged
+    /// when the turn ends with a throw, never at the take.
     func tapTakeableThrow() {
         guard isHumanTurn, humanStage == .awaitingDraw, state.throwTakeUnlocked,
               takeableThrow != nil else { return }
