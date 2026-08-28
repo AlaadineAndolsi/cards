@@ -271,22 +271,21 @@ struct SortOnPurchaseTests {
                 "sorting was explicitly turned off — the draw goes to the end")
     }
 
-    @Test func freshDealLandsFullySortedInManualMode() {
-        // A drag switched the full sort off mid-round; the NEXT round's deal
-        // has no manual arrangement to respect — it lands fully sorted by the
-        // remembered rule, exactly as if the sort button had been tapped.
+    @Test func freshDealLandsInDealtOrderThenTheActiveSortSnapsIn() {
+        // The hand arrives EXACTLY as dealt — jokers included, no card jumps
+        // the queue. The active sort stays on and only reorders the fan once
+        // the deal animation has played out.
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
         var s = StateBuilder.base()
         s.dealerSeat = 0
         let vm = RummyGameViewModel(state: s, store: GameStore(directory: dir))
         vm.toggleSort(.rank)
-        vm.commitManualReorder()  // manual mode: activeSort off, slotSort kept
         vm.apply(.deal(.p3222))
-        let dealt = vm.handOrder
-        #expect(dealt.count == 15)
-        vm.toggleSort(.rank)  // reference: the full sort's order
-        #expect(dealt == vm.handOrder, "the deal must land already fully sorted")
+        #expect(vm.handOrder.count == 15)
+        #expect(vm.handOrder == vm.state.players[0].hand.map(\.id),
+                "the deal lands exactly in dealt order")
+        #expect(vm.activeSort == .rank, "the sort stays active for the post-deal snap")
     }
 
     @Test func dragThatClearsTheSortShowsANotice() {

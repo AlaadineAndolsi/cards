@@ -775,14 +775,18 @@ final class RummyGameViewModel {
             syncHandOrder()
             pruneLocks()
             swapFreshIntoLockedJokers(addedSince: before)
-            if activeSort != nil {
+            if case .deal = action {
+                // The hand arrives EXACTLY as dealt: the fan builds up in
+                // true deal order. The active sort snaps in only after the
+                // deal animation has played out (see `startDealHold`).
+                startDealHold()
+            } else if activeSort != nil {
                 applySortIfActive()  // fresh draws slot straight into the active sort
             } else {
                 // A manual drag only switched the FULL sort off — purchases
                 // keep slotting in beside their sorted neighbor.
                 slotFreshCards(addedSince: before)
             }
-            if case .deal = action { startDealHold() }
             if case .drawFromPile = action,
                let drawn = state.players[humanSeat].hand.last,
                !before.players[humanSeat].hand.contains(drawn) {
@@ -871,12 +875,6 @@ final class RummyGameViewModel {
         let beforeIDs = Set(before.players[humanSeat].hand.map(\.id))
         let fresh = state.players[humanSeat].hand.filter { !beforeIDs.contains($0.id) }
         guard !fresh.isEmpty else { return }
-        // A whole fresh hand (a deal) has no manual arrangement to respect —
-        // it lands fully sorted by the remembered rule.
-        if fresh.count == state.players[humanSeat].hand.count {
-            applySort(mode)
-            return
-        }
         let locked = Set(lockedSeries.flatMap { $0 }).union(lockedPlaceables)
         for card in fresh where !locked.contains(card.id) {
             let loose = state.players[humanSeat].hand.filter { !locked.contains($0.id) }
@@ -1794,6 +1792,13 @@ final class RummyGameViewModel {
             self.animatedPileCount = nil
             self.dealtCounts = nil
             self.isDealAnimating = false
+            // The full hand showed in true deal order — NOW the active sort
+            // (or the remembered slotting rule) snaps it into place.
+            try? await Task.sleep(for: .seconds(0.2))
+            guard !Task.isCancelled else { return }
+            if let mode = self.activeSort ?? self.slotSort {
+                self.applySort(mode)
+            }
         }
     }
 
@@ -1878,12 +1883,10 @@ final class RummyGameViewModel {
                         self.state = try RummyEngine.apply(.throwCard(legal), by: seat, to: self.state, rng: &rng)
                     }
                     if case .deal = action {
+                        // The hand arrives exactly as dealt; the active
+                        // sort snaps in after the animation (startDealHold).
                         self.startDealHold()
-                        // The fresh hand honors the sort right away — the
-                        // cards land already ordered, no re-click needed.
                         self.syncHandOrder()
-                        self.applySortIfActive()
-                        if self.activeSort == nil { self.slotFreshCards(addedSince: before) }
                     }
                     self.announceTransition(from: before, action: action, seat: seat)
                     self.scheduleTurnNudge()
